@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LeadGen - AI Voice Agent Prospecting</title>
+    <link rel="stylesheet" href="style.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="logo">LG</span>
+        <div>
+          <h1>LeadGen</h1>
+          <p>Free US business leads &amp; AI voice-agent pain points</p>
+        </div>
+      </div>
+      <div id="tier-badges" class="tier-badges">
+        <span class="source-pill">Source: OpenStreetMap</span>
+        <span id="tier-badge" class="tier-badge tier-basic">Basic mode</span>
+      </div>
+    </header>
+
+    <main class="layout">
+      <!-- Controls -->
+      <section class="panel controls">
+        <h2>Build your list</h2>
+
+        <label class="field">
+          <span>Niches</span>
+          <div class="hint">Pick one or more business types</div>
+          <div id="niches" class="chip-grid"></div>
+        </label>
+
+        <label class="field">
+          <span>States</span>
+          <div class="hint">Leave empty or "All" for every US state</div>
+          <div class="states-controls">
+            <select id="state-select" multiple size="8"></select>
+            <div class="state-buttons">
+              <button type="button" id="states-all" class="ghost">Select all</button>
+              <button type="button" id="states-none" class="ghost">Clear</button>
+            </div>
+          </div>
+        </label>
+
+        <div class="row">
+          <label class="field">
+            <span>Max leads</span>
+            <input type="number" id="limit" value="500" min="1" max="20000" />
+          </label>
+          <label class="field">
+            <span>Politeness delay (ms)</span>
+            <input type="number" id="delay" value="1000" min="0" step="100" />
+          </label>
+        </div>
+
+        <div class="actions">
+          <button id="run" class="primary">Find leads</button>
+          <button id="stop" class="danger" disabled>Stop</button>
+        </div>
+
+        <div id="progress-wrap" class="progress-wrap hidden">
+          <div class="progress-bar"><div id="progress-fill"></div></div>
+          <div id="progress-text" class="progress-text"></div>
+        </div>
+      </section>
+
+      <!-- Results -->
+      <section class="panel results">
+        <div class="results-head">
+          <h2>Results</h2>
+          <div class="stats" id="stats"></div>
+          <div class="download">
+            <input
+              type="text"
+              id="filter"
+              placeholder="Filter results..."
+              class="filter-input hidden"
+            />
+            <button id="dl-csv" class="ghost" disabled>Download CSV</button>
+            <button id="dl-xlsx" class="ghost" disabled>Download Excel</button>
+          </div>
+        </div>
+
+        <div class="table-wrap">
+          <table id="leads-table">
+            <thead>
+              <tr>
+                <th>Business</th>
+                <th>Niche</th>
+                <th>State</th>
+                <th>City</th>
+                <th>Phone</th>
+                <th>Website</th>
+                <th>Rating</th>
+                <th>Reviews</th>
+                <th>Likely Pain Point</th>
+                <th>Pitch Angle</th>
+              </tr>
+            </thead>
+            <tbody id="leads-body">
+              <tr class="empty-row">
+                <td colspan="10">No results yet. Configure a search and hit "Find leads".</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <details class="log-details">
+          <summary>Activity log</summary>
+          <pre id="log" class="log"></pre>
+        </details>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>

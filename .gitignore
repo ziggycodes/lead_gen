@@ -1,0 +1,8 @@
+node_modules/
+leads.csv
+leads.xlsx
+*.local.*
+.env
+.env.local
+.env.*
+!.env.example
