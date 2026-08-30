@@ -36,7 +36,20 @@ function sleep(ms) {
 }
 
 // Run a query string against the Overpass API, rotating mirrors on failure.
-export async function runQuery(query, { retries = 3, onLog = () => {} } = {}) {
+// Optional `cache` ({ get(query), set(query, elements) }) lets callers (e.g. the
+// web app) share results across users and skip upstream calls entirely.
+export async function runQuery(query, { retries = 3, onLog = () => {}, cache = null } = {}) {
+  if (cache) {
+    try {
+      const cached = await cache.get(query);
+      if (cached) {
+        onLog("  cache hit (skipping Overpass)");
+        return cached;
+      }
+    } catch {
+      // Cache failures must never break the search; fall through to the network.
+    }
+  }
   let lastErr;
   for (let attempt = 0; attempt < retries; attempt++) {
     const endpoint = MIRRORS[attempt % MIRRORS.length];
@@ -64,7 +77,15 @@ export async function runQuery(query, { retries = 3, onLog = () => {} } = {}) {
         throw new Error(`HTTP ${res.status} from ${hostOf(endpoint)}`);
       }
       const json = await res.json();
-      return json.elements || [];
+      const elements = json.elements || [];
+      if (cache) {
+        try {
+          await cache.set(query, elements);
+        } catch {
+          // Best-effort write; ignore cache errors.
+        }
+      }
+      return elements;
     } catch (err) {
       lastErr = err;
       onLog(`  query failed on ${hostOf(endpoint)} (${err.message}), retrying...`);

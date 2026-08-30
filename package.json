@@ -1,24 +1,50 @@
 {
-  "name": "leadgen-cli",
+  "name": "leadscout",
   "version": "1.0.0",
-  "description": "Free reusable CLI to collect US business leads from OpenStreetMap and tag AI voice-agent pain points.",
+  "description": "LeadScout - find US business leads with AI-ready pitch angles. Hosted SaaS + CLI, powered by OpenStreetMap.",
   "type": "module",
   "bin": {
-    "leadgen": "src/cli.js"
+    "leadscout": "src/cli.js"
   },
   "scripts": {
-    "start": "node src/cli.js",
-    "web": "node server.js"
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "cli": "node src/cli.js",
+    "web:legacy": "node server.js",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:push": "drizzle-kit push"
   },
   "engines": {
     "node": ">=18"
   },
   "dependencies": {
+    "@clerk/nextjs": "^7.5.12",
     "commander": "^12.1.0",
     "csv-stringify": "^6.5.2",
     "dotenv": "^16.4.7",
+    "drizzle-orm": "^0.45.2",
     "exceljs": "^4.4.0",
     "express": "^4.21.2",
-    "p-limit": "^6.1.0"
+    "framer-motion": "^12.42.2",
+    "lucide-react": "^1.23.0",
+    "next": "^16.2.10",
+    "p-limit": "^6.1.0",
+    "pg": "^8.22.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "recharts": "^3.9.2"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.2",
+    "@types/node": "^26.1.0",
+    "@types/pg": "^8.20.0",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "drizzle-kit": "^0.31.10",
+    "postcss": "^8.5.16",
+    "tailwindcss": "^4.3.2",
+    "typescript": "^6.0.3"
   }
 }

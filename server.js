@@ -108,5 +108,5 @@ app.get("/api/download", async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  process.stdout.write(`\nLead-Gen web tool running at http://localhost:${PORT}\n`);
+  process.stdout.write(`\nLeadScout legacy dashboard running at http://localhost:${PORT}\n`);
 });

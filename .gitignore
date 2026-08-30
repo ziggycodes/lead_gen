@@ -6,3 +6,13 @@ leads.xlsx
 .env.local
 .env.*
 !.env.example
+
+# Next.js
+.next/
+out/
+next-env.d.ts
+*.tsbuildinfo
+
+# Unrelated client work — keep local, never publish
+AI4Business-*
+form_b_101_template.gs

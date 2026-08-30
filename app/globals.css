@@ -1,0 +1,65 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ink: #141414;
+  --color-panel: #ffffff;
+  --color-panel-2: #f3f1eb;
+  --color-line: #e8e4db;
+  --color-fg: #141414;
+  --color-muted: #6b6560;
+  --color-accent: #c8f031;
+  --color-coral: #ff8a65;
+  --color-oat: #f3f1eb;
+  --color-mint: #7cb342;
+  --color-danger: #e53935;
+
+  --font-sans: var(--font-dm-sans), system-ui, -apple-system, sans-serif;
+  --font-display: var(--font-sora), var(--font-dm-sans), system-ui, sans-serif;
+}
+
+body {
+  background: #faf9f6;
+  color: var(--color-fg);
+  min-height: 100vh;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--color-accent) 45%, transparent);
+}
+
+.font-display {
+  font-family: var(--font-display);
+}
+
+/* Thin scrollbars for the results table / log */
+.scroll-thin::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+.scroll-thin::-webkit-scrollbar-thumb {
+  background: var(--color-line);
+  border-radius: 8px;
+}
+
+/* FAQ open answer fade */
+.faq-item .faq-answer {
+  opacity: 0;
+  transform: translateY(-4px);
+  transition:
+    opacity 0.25s ease,
+    transform 0.25s ease;
+}
+
+.faq-item[open] .faq-answer {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .faq-item .faq-answer {
+    transition: none;
+    opacity: 1;
+    transform: none;
+  }
+}
+

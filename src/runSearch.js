@@ -68,7 +68,8 @@ export function summarize(leads) {
 }
 
 // Run the full search.
-// opts: { niches, states, limit, delayMs, noEnrich }
+// opts: { niches, states, limit, delayMs, noEnrich, cache }
+//   cache (optional): { get(query), set(query, elements) } for Overpass result reuse
 // callbacks: { onLog, onProgress, onEnrichProgress({ done, total }), isCancelled }
 export async function runSearch(opts, callbacks = {}) {
   const onLog = callbacks.onLog || (() => {});
@@ -101,7 +102,7 @@ export async function runSearch(opts, callbacks = {}) {
       let added = 0;
       try {
         const query = buildQuery(stateIso, niche);
-        const elements = await runQuery(query, { onLog });
+        const elements = await runQuery(query, { onLog, cache: opts.cache || null });
         const rawLeads = elements
           .map((el) => elementToLead(el, { niche: niche.key, nicheLabel: niche.label, stateIso }))
           .filter(Boolean);
