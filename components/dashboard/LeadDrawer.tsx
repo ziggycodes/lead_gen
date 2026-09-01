@@ -14,10 +14,15 @@ import {
   Copy,
   Check,
   ExternalLink,
+  LoaderCircle,
+  Users,
 } from "lucide-react";
 import type { Lead } from "./types";
 
 function leadToText(l: Lead): string {
+  const dmLines = (l.decisionMakers || []).map(
+    (dm) => `Decision maker: ${dm.name}${dm.title ? ` (${dm.title})` : ""} ${dm.url}`
+  );
   return [
     l.name,
     l.niche && `Niche: ${l.niche}`,
@@ -26,6 +31,7 @@ function leadToText(l: Lead): string {
     l.website && `Website: ${l.website}`,
     l.email && `Email: ${l.email}`,
     l.address && `Address: ${l.address}`,
+    ...dmLines,
     l.painPoint && `Pain point: ${l.painPoint}`,
     l.pitchAngle && `Pitch angle: ${l.pitchAngle}`,
   ]
@@ -36,11 +42,17 @@ function leadToText(l: Lead): string {
 export function LeadDrawer({
   lead,
   isSaved,
+  dmLoading,
+  canLookup,
+  onFindDecisionMakers,
   onToggleSave,
   onClose,
 }: {
   lead: Lead | null;
   isSaved: boolean;
+  dmLoading: boolean;
+  canLookup: boolean;
+  onFindDecisionMakers: (lead: Lead) => void;
   onToggleSave: (lead: Lead) => void;
   onClose: () => void;
 }) {
@@ -157,6 +169,14 @@ export function LeadDrawer({
                 {lead.signals}
               </DetailRow>
             )}
+            <DetailRow icon={<Users className="h-4 w-4" />} label="Decision makers">
+              <DecisionMakerBlock
+                lead={lead}
+                loading={dmLoading}
+                canLookup={canLookup}
+                onFind={onFindDecisionMakers}
+              />
+            </DetailRow>
           </dl>
 
           {lead.osmLink && (
@@ -173,6 +193,70 @@ export function LeadDrawer({
         </div>
       </aside>
     </div>
+  );
+}
+
+function DecisionMakerBlock({
+  lead,
+  loading,
+  canLookup,
+  onFind,
+}: {
+  lead: Lead;
+  loading: boolean;
+  canLookup: boolean;
+  onFind: (lead: Lead) => void;
+}) {
+  if (loading) {
+    return (
+      <span className="flex items-center gap-1.5 text-muted">
+        <LoaderCircle className="h-4 w-4 animate-spin" />
+        Searching LinkedIn results…
+      </span>
+    );
+  }
+
+  const matches = lead.decisionMakers || [];
+  if (matches.length > 0) {
+    return (
+      <ul className="space-y-2">
+        {matches.map((dm) => (
+          <li key={dm.url} className="flex items-start gap-2">
+            <ExternalLink className="mt-0.5 h-4 w-4 shrink-0 text-[#0a66c2]" />
+            <div className="min-w-0">
+              <a
+                href={dm.url}
+                target="_blank"
+                rel="noreferrer"
+                className="font-medium text-fg hover:underline"
+              >
+                {dm.name}
+              </a>
+              {dm.title && <p className="text-xs text-muted">{dm.title}</p>}
+              <p className="text-[11px] text-muted">
+                {Math.round(dm.confidence * 100)}% confidence
+              </p>
+            </div>
+          </li>
+        ))}
+      </ul>
+    );
+  }
+
+  if (lead.decisionMakerStatus === "none" || lead.decisionMakerStatus === "error") {
+    return <span className="text-muted">No reliable match found.</span>;
+  }
+
+  return (
+    <button
+      onClick={() => onFind(lead)}
+      disabled={!canLookup}
+      title={canLookup ? undefined : "Run or open a search first"}
+      className="flex items-center gap-1.5 rounded-full border border-line px-3 py-1.5 text-sm font-medium text-fg transition hover:border-accent hover:text-accent disabled:pointer-events-none disabled:opacity-40"
+    >
+      <ExternalLink className="h-4 w-4" />
+      Find decision makers
+    </button>
   );
 }
 

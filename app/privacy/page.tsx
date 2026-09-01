@@ -35,6 +35,17 @@ export default function PrivacyPage() {
             </p>
           </section>
           <section>
+            <h2 className="mb-2 font-semibold text-fg">Decision-maker lookup</h2>
+            <p>
+              When you use the optional &ldquo;Find decision makers&rdquo; action, we run a web
+              search for publicly indexed professional profile links (such as LinkedIn) that
+              appear to be associated with a business. We only surface links that are already
+              public on the web; we do not log in to, query, or scrape LinkedIn itself. Any
+              matches we find are stored alongside that lead in your search results, and are
+              removed when you delete your account.
+            </p>
+          </section>
+          <section>
             <h2 className="mb-2 font-semibold text-fg">Deletion</h2>
             <p>
               Delete your account and we remove your stored searches, usage records, and

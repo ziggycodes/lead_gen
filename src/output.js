@@ -16,15 +16,32 @@ const COLUMNS = [
   { key: "rating", header: "Rating", width: 10 },
   { key: "reviewCount", header: "Reviews", width: 10 },
   { key: "ratingSource", header: "Rating Source", width: 18 },
+  { key: "decisionMaker", header: "Decision Maker", width: 26 },
+  { key: "decisionMakerTitle", header: "Decision Maker Title", width: 26 },
+  { key: "decisionMakerLinkedIn", header: "Decision Maker LinkedIn", width: 40 },
+  { key: "decisionMakerConfidence", header: "DM Confidence", width: 14 },
   { key: "painPoint", header: "Likely Pain Point", width: 60 },
   { key: "pitchAngle", header: "Suggested Pitch Angle", width: 50 },
   { key: "signals", header: "Signals", width: 36 },
   { key: "osmLink", header: "Source (OSM)", width: 40 },
 ];
 
+// Flatten the top decision-maker match onto derived columns.
+const DERIVED = {
+  decisionMaker: (lead) => lead.decisionMakers?.[0]?.name ?? "",
+  decisionMakerTitle: (lead) => lead.decisionMakers?.[0]?.title ?? "",
+  decisionMakerLinkedIn: (lead) => lead.decisionMakers?.[0]?.url ?? "",
+  decisionMakerConfidence: (lead) => {
+    const c = lead.decisionMakers?.[0]?.confidence;
+    return typeof c === "number" ? `${Math.round(c * 100)}%` : "";
+  },
+};
+
 function toRow(lead) {
   const row = {};
-  for (const col of COLUMNS) row[col.key] = lead[col.key] ?? "";
+  for (const col of COLUMNS) {
+    row[col.key] = DERIVED[col.key] ? DERIVED[col.key](lead) : lead[col.key] ?? "";
+  }
   return row;
 }
 

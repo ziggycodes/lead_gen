@@ -1,3 +1,11 @@
+export interface DecisionMaker {
+  name: string;
+  title: string;
+  url: string;
+  confidence: number;
+  source: string;
+}
+
 export interface Lead {
   name: string;
   niche: string;
@@ -11,6 +19,8 @@ export interface Lead {
   pitchAngle: string;
   signals: string;
   osmLink: string;
+  decisionMakers?: DecisionMaker[];
+  decisionMakerStatus?: "found" | "none" | "error";
 }
 
 export interface SearchHistoryItem {

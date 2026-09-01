@@ -26,10 +26,12 @@ import {
   ArrowDown,
   Clock,
   Plus,
+  ExternalLink,
+  Users,
 } from "lucide-react";
 import { Brand } from "@/components/Brand";
 import { leadKey } from "@/lib/leadKey";
-import type { Lead } from "./types";
+import type { Lead, DecisionMaker } from "./types";
 import { ResultsCharts } from "./ResultsCharts";
 import { LeadDrawer } from "./LeadDrawer";
 import { RecentSearches } from "./RecentSearches";
@@ -55,6 +57,11 @@ type SortKey = "name" | "niche" | "state" | "city";
 type SortDir = "asc" | "desc";
 
 const DEFAULT_NICHES = ["dentist", "salon", "plumber", "restaurant"];
+
+function topDecisionMaker(lead: Lead): DecisionMaker | null {
+  if (!lead.decisionMakers || lead.decisionMakers.length === 0) return null;
+  return lead.decisionMakers[0];
+}
 
 export function Dashboard() {
   const [niches, setNiches] = useState<Niche[]>([]);
@@ -90,6 +97,9 @@ export function Dashboard() {
   const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
   const [activeSearchId, setActiveSearchId] = useState<number | null>(null);
   const [copiedAll, setCopiedAll] = useState(false);
+  const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
+  const [dmLoading, setDmLoading] = useState<Set<string>>(new Set());
+  const [dmError, setDmError] = useState<string | null>(null);
 
   const refreshUsage = useCallback(async () => {
     try {
@@ -229,6 +239,8 @@ export function Dashboard() {
     setLogs([]);
     setProgress(null);
     setActiveSearchId(null);
+    setSelectedRows(new Set());
+    setDmError(null);
     setRunning(true);
 
     const params = new URLSearchParams({
@@ -307,6 +319,8 @@ export function Dashboard() {
         const json = await res.json();
         setLeads((json.leads as Lead[]) || []);
         setActiveSearchId(id);
+        setSelectedRows(new Set());
+        setDmError(null);
         setError(null);
         setFilter("");
         setHistoryOpen(false);
@@ -316,11 +330,76 @@ export function Dashboard() {
     }
   }, []);
 
+  const lookupDecisionMakers = useCallback(
+    async (keys: string[]) => {
+      if (keys.length === 0) return;
+      if (!activeSearchId) {
+        setDmError("Run or open a search before finding decision makers.");
+        return;
+      }
+      setDmError(null);
+      setDmLoading((prev) => {
+        const next = new Set(prev);
+        keys.forEach((k) => next.add(k));
+        return next;
+      });
+      try {
+        const res = await fetch("/api/decision-makers", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ searchId: activeSearchId, keys }),
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(json.error || `Lookup failed (${res.status})`);
+        }
+        setLeads((json.leads as Lead[]) || []);
+        setSelectedRows(new Set());
+      } catch (err) {
+        setDmError((err as Error).message);
+      } finally {
+        setDmLoading((prev) => {
+          const next = new Set(prev);
+          keys.forEach((k) => next.delete(k));
+          return next;
+        });
+      }
+    },
+    [activeSearchId]
+  );
+
   const copyAll = useCallback(async () => {
-    const cols = ["Business", "Niche", "State", "City", "Phone", "Website", "Email", "Pain Point", "Pitch Angle"];
-    const rows = filteredAndSortedLeadsRef.current.map((l) =>
-      [l.name, l.niche, l.state, l.city, l.phone, l.website, l.email, l.painPoint, l.pitchAngle].join("\t")
-    );
+    const cols = [
+      "Business",
+      "Niche",
+      "State",
+      "City",
+      "Email",
+      "Phone",
+      "Website",
+      "Decision Maker",
+      "Title",
+      "LinkedIn",
+      "Pain Point",
+      "Pitch Angle",
+    ];
+    const rows = filteredAndSortedLeadsRef.current.map((l) => {
+      const dm = topDecisionMaker(l);
+      return [
+        l.name,
+        l.niche,
+        l.state,
+        l.city,
+        l.email,
+        l.phone,
+        l.website,
+        dm?.name || "",
+        dm?.title || "",
+        dm?.url || "",
+        l.painPoint,
+        l.pitchAngle,
+      ].join("\t");
+    });
     try {
       await navigator.clipboard.writeText([cols.join("\t"), ...rows].join("\n"));
       setCopiedAll(true);
@@ -343,7 +422,8 @@ export function Dashboard() {
     if (!filter.trim()) return leads;
     const q = filter.toLowerCase();
     return leads.filter((l) =>
-      [l.name, l.niche, l.state, l.city, l.phone, l.painPoint]
+      [l.name, l.niche, l.state, l.city, l.email, l.phone, l.painPoint, topDecisionMaker(l)?.name]
+        .filter(Boolean)
         .join(" ")
         .toLowerCase()
         .includes(q)
@@ -413,11 +493,41 @@ export function Dashboard() {
     { label: "Niche", key: "niche" },
     { label: "State", key: "state" },
     { label: "City", key: "city" },
+    { label: "Email" },
     { label: "Phone" },
     { label: "Website" },
+    { label: "Decision Maker" },
     { label: "Likely Pain Point" },
     { label: "Pitch Angle" },
   ];
+
+  const selectableKeys = filteredAndSortedLeads
+    .map((l) => leadKey(l))
+    .filter((k) => k);
+  const allSelected =
+    selectableKeys.length > 0 && selectableKeys.every((k) => selectedRows.has(k));
+
+  const toggleRow = (key: string) => {
+    if (!key) return;
+    setSelectedRows((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    setSelectedRows((prev) => {
+      if (selectableKeys.every((k) => prev.has(k))) return new Set();
+      return new Set(selectableKeys);
+    });
+  };
+
+  const findSelectedDecisionMakers = () => {
+    const keys = Array.from(selectedRows).slice(0, 10);
+    lookupDecisionMakers(keys);
+  };
 
   const emptyMessage = running
     ? "Searching OpenStreetMap… results appear when the run completes."
@@ -749,6 +859,24 @@ export function Dashboard() {
                   </div>
                 )}
                 <button
+                  onClick={findSelectedDecisionMakers}
+                  disabled={selectedRows.size === 0 || !activeSearchId}
+                  title={
+                    !activeSearchId
+                      ? "Run or open a search first"
+                      : "Find LinkedIn decision makers for the selected leads (up to 10)"
+                  }
+                  className="flex items-center gap-1.5 rounded-full border border-line px-3 py-1.5 text-sm font-medium text-muted transition-colors hover:text-fg disabled:pointer-events-none disabled:opacity-30"
+                >
+                  <Users className="h-4 w-4" />
+                  Decision makers
+                  {selectedRows.size > 0 && (
+                    <span className="rounded-full bg-ink px-1.5 text-[11px] font-semibold text-white">
+                      {Math.min(selectedRows.size, 10)}
+                    </span>
+                  )}
+                </button>
+                <button
                   onClick={copyAll}
                   disabled={leads.length === 0}
                   className="flex items-center gap-1.5 rounded-full border border-line px-3 py-1.5 text-sm font-medium text-muted transition-colors hover:text-fg disabled:pointer-events-none disabled:opacity-30"
@@ -773,6 +901,13 @@ export function Dashboard() {
               </div>
             </div>
 
+            {dmError && (
+              <div className="mb-3 flex items-start gap-2 rounded-xl bg-danger/10 px-3 py-2.5 text-sm text-danger">
+                <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>{dmError}</span>
+              </div>
+            )}
+
             {filteredAndSortedLeads.length === 0 ? (
               <div className="flex flex-col items-center justify-center rounded-2xl bg-oat/60 px-6 py-20 text-center">
                 <span className="mb-4 grid h-14 w-14 place-items-center rounded-2xl bg-accent/40 text-ink">
@@ -792,6 +927,15 @@ export function Dashboard() {
                 <table className="w-full min-w-200 text-left text-xs">
                   <thead className="sticky top-0 z-10 bg-oat">
                     <tr className="text-muted">
+                      <th className="w-9 border-b border-line px-3 py-2.5">
+                        <input
+                          type="checkbox"
+                          checked={allSelected}
+                          onChange={toggleSelectAll}
+                          aria-label="Select all leads"
+                          className="h-3.5 w-3.5 cursor-pointer accent-accent"
+                        />
+                      </th>
                       <th className="w-10 border-b border-line px-3 py-2.5" />
                       {columns.map((c) => (
                         <th
@@ -823,12 +967,24 @@ export function Dashboard() {
                     {filteredAndSortedLeads.map((l, i) => {
                       const key = leadKey(l);
                       const saved = savedKeys.has(key);
+                      const dm = topDecisionMaker(l);
+                      const dmBusy = dmLoading.has(key);
                       return (
                         <tr
                           key={key || i}
                           onClick={() => setSelectedLead(l)}
                           className="cursor-pointer border-t border-line/60 align-top transition-colors hover:bg-oat/50"
                         >
+                          <td className="px-3 py-2">
+                            <input
+                              type="checkbox"
+                              checked={selectedRows.has(key)}
+                              onClick={(e) => e.stopPropagation()}
+                              onChange={() => toggleRow(key)}
+                              aria-label={`Select ${l.name}`}
+                              className="h-3.5 w-3.5 cursor-pointer accent-accent"
+                            />
+                          </td>
                           <td className="px-3 py-2">
                             <button
                               onClick={(e) => {
@@ -852,6 +1008,19 @@ export function Dashboard() {
                           </td>
                           <td className="px-3 py-2 text-muted">{l.state}</td>
                           <td className="px-3 py-2 text-muted">{l.city}</td>
+                          <td className="max-w-44 truncate px-3 py-2">
+                            {l.email ? (
+                              <a
+                                href={`mailto:${l.email}`}
+                                onClick={(e) => e.stopPropagation()}
+                                className="text-fg underline-offset-2 hover:underline"
+                              >
+                                {l.email}
+                              </a>
+                            ) : (
+                              <span className="text-muted">-</span>
+                            )}
+                          </td>
                           <td className="whitespace-nowrap px-3 py-2 text-muted">{l.phone || "-"}</td>
                           <td className="max-w-40 truncate px-3 py-2">
                             {l.website ? (
@@ -866,6 +1035,46 @@ export function Dashboard() {
                               </a>
                             ) : (
                               <span className="text-muted">-</span>
+                            )}
+                          </td>
+                          <td className="max-w-48 px-3 py-2">
+                            {dmBusy ? (
+                              <span className="flex items-center gap-1.5 text-muted">
+                                <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                                Searching
+                              </span>
+                            ) : dm ? (
+                              <a
+                                href={dm.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className="flex items-center gap-1.5 font-medium text-fg underline-offset-2 hover:underline"
+                                title={dm.title || undefined}
+                              >
+                                <ExternalLink className="h-3.5 w-3.5 shrink-0 text-[#0a66c2]" />
+                                <span className="truncate">{dm.name}</span>
+                              </a>
+                            ) : l.decisionMakerStatus === "none" ||
+                              l.decisionMakerStatus === "error" ? (
+                              <span className="text-muted">No match</span>
+                            ) : (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  lookupDecisionMakers([key]);
+                                }}
+                                disabled={!activeSearchId}
+                                className="flex items-center gap-1 text-muted transition-colors hover:text-fg disabled:opacity-40"
+                                title={
+                                  activeSearchId
+                                    ? "Find LinkedIn decision makers"
+                                    : "Run or open a search first"
+                                }
+                              >
+                                <ExternalLink className="h-3.5 w-3.5" />
+                                Find
+                              </button>
                             )}
                           </td>
                           <td className="max-w-60 px-3 py-2 text-muted">{l.painPoint}</td>
@@ -938,8 +1147,15 @@ export function Dashboard() {
       )}
 
       <LeadDrawer
-        lead={selectedLead}
+        lead={
+          selectedLead
+            ? leads.find((l) => leadKey(l) === leadKey(selectedLead)) || selectedLead
+            : null
+        }
         isSaved={selectedLead ? savedKeys.has(leadKey(selectedLead)) : false}
+        dmLoading={selectedLead ? dmLoading.has(leadKey(selectedLead)) : false}
+        canLookup={Boolean(activeSearchId)}
+        onFindDecisionMakers={(l) => lookupDecisionMakers([leadKey(l)])}
         onToggleSave={toggleSave}
         onClose={() => setSelectedLead(null)}
       />
