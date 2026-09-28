@@ -193,16 +193,65 @@ function scoreCandidate(
   return { name, title, url, confidence, source: SOURCE };
 }
 
-function buildQuery(lead: DecisionMakerInput, domain: string): string {
-  const roles = "(owner OR founder OR CEO OR president OR \"general manager\")";
+const ROLES = '(owner OR founder OR CEO OR president OR "general manager")';
+
+// Strict query: everything we know AND-ed together. High precision, but Google
+// often returns nothing when the business/location/role combo is too specific.
+function buildStrictQuery(lead: DecisionMakerInput, domain: string): string {
   const parts = [
     `"${(lead.name || "").trim()}"`,
     domain ? domain : "",
     [lead.city, lead.state].filter(Boolean).join(" "),
-    roles,
+    ROLES,
     "site:linkedin.com/in",
   ].filter(Boolean);
   return parts.join(" ");
+}
+
+// Relaxed fallback: just the business name and roles, scoped to member
+// profiles. Lower precision, but far more likely to return candidates that the
+// scorer can then filter on.
+function buildRelaxedQuery(lead: DecisionMakerInput): string {
+  const parts = [`"${(lead.name || "").trim()}"`, ROLES, "site:linkedin.com/in"].filter(Boolean);
+  return parts.join(" ");
+}
+
+// Run one SerpApi Google search and return its organic results. Returns [] on
+// any failure. Never throws.
+async function serpApiSearch(key: string, query: string): Promise<SerpResult[]> {
+  const url = new URL("https://serpapi.com/search.json");
+  url.searchParams.set("engine", "google");
+  url.searchParams.set("q", query);
+  url.searchParams.set("num", "10");
+  url.searchParams.set("api_key", key);
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data.organic_results) ? (data.organic_results as SerpResult[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+// Score a batch of raw results into deduped, floor-passing matches.
+function collectMatches(
+  results: SerpResult[],
+  lead: DecisionMakerInput,
+  tokens: string[],
+  domain: string,
+  seen: Set<string>
+): DecisionMaker[] {
+  const matches: DecisionMaker[] = [];
+  for (const r of results) {
+    const scored = scoreCandidate(r, lead, tokens, domain);
+    if (!scored || scored.confidence < CONFIDENCE_FLOOR) continue;
+    const dedup = scored.url.replace(/\/+$/, "").toLowerCase();
+    if (seen.has(dedup)) continue;
+    seen.add(dedup);
+    matches.push(scored);
+  }
+  return matches;
 }
 
 // Look up decision makers for a single business. Returns [] on any failure or
@@ -216,29 +265,18 @@ export async function findDecisionMakers(
 
   const domain = extractDomain(lead.website);
   const tokens = nameTokens(lead.name);
-  const url = new URL("https://serpapi.com/search.json");
-  url.searchParams.set("engine", "google");
-  url.searchParams.set("q", buildQuery(lead, domain));
-  url.searchParams.set("num", "10");
-  url.searchParams.set("api_key", key);
+  const seen = new Set<string>();
 
   try {
-    const res = await fetch(url);
-    if (!res.ok) return [];
-    const data = await res.json();
-    const results: SerpResult[] = Array.isArray(data.organic_results)
-      ? data.organic_results
-      : [];
+    // Pass 1: strict query for precision.
+    const strict = await serpApiSearch(key, buildStrictQuery(lead, domain));
+    let matches = collectMatches(strict, lead, tokens, domain, seen);
 
-    const seen = new Set<string>();
-    const matches: DecisionMaker[] = [];
-    for (const r of results) {
-      const scored = scoreCandidate(r, lead, tokens, domain);
-      if (!scored || scored.confidence < CONFIDENCE_FLOOR) continue;
-      const dedup = scored.url.replace(/\/+$/, "").toLowerCase();
-      if (seen.has(dedup)) continue;
-      seen.add(dedup);
-      matches.push(scored);
+    // Pass 2: only if the strict query yielded nothing usable, retry with a
+    // relaxed query. This is where most real matches come from.
+    if (matches.length === 0) {
+      const relaxed = await serpApiSearch(key, buildRelaxedQuery(lead));
+      matches = collectMatches(relaxed, lead, tokens, domain, seen);
     }
 
     matches.sort((a, b) => b.confidence - a.confidence);

@@ -14,7 +14,6 @@ import {
   Copy,
   Check,
   ExternalLink,
-  LoaderCircle,
   Users,
 } from "lucide-react";
 import type { Lead } from "./types";
@@ -42,17 +41,11 @@ function leadToText(l: Lead): string {
 export function LeadDrawer({
   lead,
   isSaved,
-  dmLoading,
-  canLookup,
-  onFindDecisionMakers,
   onToggleSave,
   onClose,
 }: {
   lead: Lead | null;
   isSaved: boolean;
-  dmLoading: boolean;
-  canLookup: boolean;
-  onFindDecisionMakers: (lead: Lead) => void;
   onToggleSave: (lead: Lead) => void;
   onClose: () => void;
 }) {
@@ -170,12 +163,7 @@ export function LeadDrawer({
               </DetailRow>
             )}
             <DetailRow icon={<Users className="h-4 w-4" />} label="Decision makers">
-              <DecisionMakerBlock
-                lead={lead}
-                loading={dmLoading}
-                canLookup={canLookup}
-                onFind={onFindDecisionMakers}
-              />
+              <DecisionMakerBlock lead={lead} />
             </DetailRow>
           </dl>
 
@@ -196,26 +184,7 @@ export function LeadDrawer({
   );
 }
 
-function DecisionMakerBlock({
-  lead,
-  loading,
-  canLookup,
-  onFind,
-}: {
-  lead: Lead;
-  loading: boolean;
-  canLookup: boolean;
-  onFind: (lead: Lead) => void;
-}) {
-  if (loading) {
-    return (
-      <span className="flex items-center gap-1.5 text-muted">
-        <LoaderCircle className="h-4 w-4 animate-spin" />
-        Searching LinkedIn results…
-      </span>
-    );
-  }
-
+function DecisionMakerBlock({ lead }: { lead: Lead }) {
   const matches = lead.decisionMakers || [];
   if (matches.length > 0) {
     return (
@@ -224,15 +193,16 @@ function DecisionMakerBlock({
           <li key={dm.url} className="flex items-start gap-2">
             <ExternalLink className="mt-0.5 h-4 w-4 shrink-0 text-[#0a66c2]" />
             <div className="min-w-0">
+              <p className="font-medium text-fg">{dm.name}</p>
+              {dm.title && <p className="text-xs text-muted">{dm.title}</p>}
               <a
                 href={dm.url}
                 target="_blank"
                 rel="noreferrer"
-                className="font-medium text-fg hover:underline"
+                className="block truncate text-xs text-accent hover:underline"
               >
-                {dm.name}
+                {dm.url.replace(/^https?:\/\/(www\.)?/, "")}
               </a>
-              {dm.title && <p className="text-xs text-muted">{dm.title}</p>}
               <p className="text-[11px] text-muted">
                 {Math.round(dm.confidence * 100)}% confidence
               </p>
@@ -243,21 +213,28 @@ function DecisionMakerBlock({
     );
   }
 
+  // No SerpApi match, but the lead's own website linked a LinkedIn profile.
+  if (lead.websiteLinkedIn) {
+    return (
+      <div className="flex items-start gap-2">
+        <ExternalLink className="mt-0.5 h-4 w-4 shrink-0 text-[#0a66c2]" />
+        <a
+          href={lead.websiteLinkedIn}
+          target="_blank"
+          rel="noreferrer"
+          className="block truncate text-xs text-accent hover:underline"
+        >
+          {lead.websiteLinkedIn.replace(/^https?:\/\/(www\.)?/, "")}
+        </a>
+      </div>
+    );
+  }
+
   if (lead.decisionMakerStatus === "none" || lead.decisionMakerStatus === "error") {
     return <span className="text-muted">No reliable match found.</span>;
   }
 
-  return (
-    <button
-      onClick={() => onFind(lead)}
-      disabled={!canLookup}
-      title={canLookup ? undefined : "Run or open a search first"}
-      className="flex items-center gap-1.5 rounded-full border border-line px-3 py-1.5 text-sm font-medium text-fg transition hover:border-accent hover:text-accent disabled:pointer-events-none disabled:opacity-40"
-    >
-      <ExternalLink className="h-4 w-4" />
-      Find decision makers
-    </button>
-  );
+  return <span className="text-muted">Not available.</span>;
 }
 
 function DetailRow({

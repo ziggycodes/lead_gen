@@ -4,6 +4,7 @@ import { db, schema } from "@/lib/db";
 import { ensureUser, UnauthorizedError } from "@/lib/users";
 import { reserveQuota, reconcileQuota, getQuota, QuotaExceededError } from "@/lib/quota";
 import { overpassDbCache } from "@/lib/overpassCache";
+import { findDecisionMakers, hasDecisionMakerLookup } from "@/lib/decisionMakers";
 import { runSearch } from "@/src/runSearch.js";
 
 export const dynamic = "force-dynamic";
@@ -96,6 +97,9 @@ export async function GET(req: NextRequest) {
           });
         }
 
+        const dmEnabled = hasDecisionMakerLookup();
+        const dmLimit = Number(process.env.DECISION_MAKER_MAX_PER_SEARCH) || 25;
+
         const { leads, summary } = await runSearch(
           {
             niches,
@@ -104,10 +108,17 @@ export async function GET(req: NextRequest) {
             delayMs: OVERPASS_DELAY_MS,
             noEnrich: true, // web users get the Basic engine (see pricing plan)
             cache: overpassDbCache,
+            // Free contact scraping runs regardless of the enrichment tier.
+            scrapeContacts: true,
+            // Decision-maker lookup runs only when a SerpApi key is present.
+            findDecisionMakers: dmEnabled ? findDecisionMakers : null,
+            decisionMakerLimit: dmLimit,
           },
           {
             onLog: (msg: string) => send("log", { msg }),
             onProgress: (p: unknown) => send("progress", p),
+            onContactProgress: (p: unknown) => send("contact", p),
+            onDecisionMakerProgress: (p: unknown) => send("decision", p),
             isCancelled: () => cancelled,
           }
         );

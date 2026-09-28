@@ -14,6 +14,9 @@ export interface Lead {
   phone: string;
   website: string;
   email: string;
+  emailSource?: string;
+  emailsFound?: string[];
+  websiteLinkedIn?: string;
   address: string;
   painPoint: string;
   pitchAngle: string;

@@ -9,6 +9,7 @@ import { buildQuery, runQuery, sleep } from "./overpass.js";
 import { elementToLead, dedupe } from "./parse.js";
 import { inferPainPoint } from "./painPoints.js";
 import { enrichLead, enrichmentStatus, enrichConcurrency, resetEnrichWarnings } from "./enrich.js";
+import { scrapeContacts } from "./contactScrape.js";
 
 // Resolve a comma-separated niche string into niche config objects.
 export function resolveNiches(input, onLog = () => {}) {
@@ -47,12 +48,14 @@ export function summarize(leads) {
   const byNiche = {};
   let withPhone = 0;
   let withWebsite = 0;
+  let withEmail = 0;
   let withRating = 0;
   let llmEnriched = 0;
   for (const l of leads) {
     byNiche[l.niche] = (byNiche[l.niche] || 0) + 1;
     if (l.phone) withPhone++;
     if (l.website) withWebsite++;
+    if (l.email) withEmail++;
     if (l.rating !== undefined && l.rating !== "") withRating++;
     if (l.llmEnriched) llmEnriched++;
   }
@@ -60,6 +63,7 @@ export function summarize(leads) {
     total: leads.length,
     withPhone,
     withWebsite,
+    withEmail,
     withRating,
     llmEnriched,
     tier: enrichmentStatus().tier,
@@ -75,6 +79,8 @@ export async function runSearch(opts, callbacks = {}) {
   const onLog = callbacks.onLog || (() => {});
   const onProgress = callbacks.onProgress || (() => {});
   const onEnrichProgress = callbacks.onEnrichProgress || (() => {});
+  const onContactProgress = callbacks.onContactProgress || (() => {});
+  const onDecisionMakerProgress = callbacks.onDecisionMakerProgress || (() => {});
   const isCancelled = callbacks.isCancelled || (() => false);
 
   const niches = resolveNiches(opts.niches, onLog);
@@ -156,6 +162,84 @@ export async function runSearch(opts, callbacks = {}) {
       )
     );
     onLog(`Enrichment complete (${done}/${leads.length} processed).`);
+  }
+
+  // Contact scraping (free). Runs independently of enrichment: pull emails and
+  // LinkedIn links off each lead's own website. Only leads that have a website
+  // but no email are worth the fetch.
+  if (opts.scrapeContacts && leads.length) {
+    const targets = leads.filter((l) => l.website && !l.email);
+    if (targets.length) {
+      onLog(`Scraping ${targets.length} websites for contact info...`);
+      const limiter = pLimit(8);
+      let done = 0;
+      await Promise.all(
+        targets.map((lead) =>
+          limiter(async () => {
+            if (isCancelled()) return;
+            try {
+              const { emails, linkedInProfiles } = await scrapeContacts(lead.website);
+              if (emails.length) {
+                lead.email = emails[0];
+                lead.emailSource = "website";
+                lead.emailsFound = emails;
+              }
+              if (linkedInProfiles.length) {
+                lead.websiteLinkedIn = linkedInProfiles[0];
+              }
+            } catch {
+              /* never let one bad site fail the run */
+            }
+            done++;
+            onContactProgress({ done, total: targets.length });
+          })
+        )
+      );
+      onLog(`Contact scrape complete (${done}/${targets.length} sites).`);
+    }
+  }
+
+  // Decision-maker lookup (SerpApi). The lookup function is injected by the
+  // caller so this JS module never imports the TS lib. Capped by a per-search
+  // budget because each lead costs one SerpApi search.
+  const findDM = typeof opts.findDecisionMakers === "function" ? opts.findDecisionMakers : null;
+  if (findDM && leads.length) {
+    const budget =
+      Number.isFinite(opts.decisionMakerLimit) && opts.decisionMakerLimit > 0
+        ? opts.decisionMakerLimit
+        : leads.length;
+    // Priority: leads with both a website and phone are the most contactable,
+    // then website-only, then phone-only, then the rest.
+    const score = (l) => (l.website ? 2 : 0) + (l.phone ? 1 : 0);
+    const ordered = leads
+      .map((lead, idx) => ({ lead, idx }))
+      .sort((a, b) => score(b.lead) - score(a.lead) || a.idx - b.idx);
+    const targets = ordered.slice(0, budget).map((o) => o.lead);
+    onLog(`Decision-maker lookup: ${targets.length}/${leads.length} leads (SerpApi budget).`);
+    const limiter = pLimit(2);
+    let done = 0;
+    await Promise.all(
+      targets.map((lead) =>
+        limiter(async () => {
+          if (isCancelled()) return;
+          try {
+            const matches = await findDM({
+              name: lead.name,
+              city: lead.city,
+              state: lead.state,
+              website: lead.website,
+            });
+            lead.decisionMakers = matches;
+            lead.decisionMakerStatus = matches.length > 0 ? "found" : "none";
+          } catch {
+            lead.decisionMakerStatus = "error";
+          }
+          done++;
+          onDecisionMakerProgress({ done, total: targets.length });
+        })
+      )
+    );
+    onLog(`Decision-maker lookup complete (${done}/${targets.length} processed).`);
   }
 
   return { leads, summary: summarize(leads) };

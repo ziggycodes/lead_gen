@@ -12,6 +12,7 @@ const COLUMNS = [
   { key: "phone", header: "Phone", width: 16 },
   { key: "website", header: "Website", width: 28 },
   { key: "email", header: "Email", width: 24 },
+  { key: "emailSource", header: "Email Source", width: 14 },
   { key: "address", header: "Address", width: 36 },
   { key: "rating", header: "Rating", width: 10 },
   { key: "reviewCount", header: "Reviews", width: 10 },

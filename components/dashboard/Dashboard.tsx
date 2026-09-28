@@ -27,7 +27,6 @@ import {
   Clock,
   Plus,
   ExternalLink,
-  Users,
 } from "lucide-react";
 import { Brand } from "@/components/Brand";
 import { leadKey } from "@/lib/leadKey";
@@ -98,8 +97,6 @@ export function Dashboard() {
   const [activeSearchId, setActiveSearchId] = useState<number | null>(null);
   const [copiedAll, setCopiedAll] = useState(false);
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
-  const [dmLoading, setDmLoading] = useState<Set<string>>(new Set());
-  const [dmError, setDmError] = useState<string | null>(null);
 
   const refreshUsage = useCallback(async () => {
     try {
@@ -240,7 +237,6 @@ export function Dashboard() {
     setProgress(null);
     setActiveSearchId(null);
     setSelectedRows(new Set());
-    setDmError(null);
     setRunning(true);
 
     const params = new URLSearchParams({
@@ -271,6 +267,16 @@ export function Dashboard() {
           setLogs((prev) => [...prev.slice(-499), String(data.msg)]);
         } else if (event === "progress") {
           setProgress(data as { step: number; totalSteps: number; total: number; limit: number });
+        } else if (event === "contact") {
+          setLogs((prev) => [
+            ...prev.slice(-499),
+            `Scraping websites for contacts… ${data.done}/${data.total}`,
+          ]);
+        } else if (event === "decision") {
+          setLogs((prev) => [
+            ...prev.slice(-499),
+            `Finding LinkedIn decision makers… ${data.done}/${data.total}`,
+          ]);
         } else if (event === "done") {
           setLeads((data.leads as Lead[]) || []);
           if (data.quota) setQuota(data.quota as Quota);
@@ -320,7 +326,6 @@ export function Dashboard() {
         setLeads((json.leads as Lead[]) || []);
         setActiveSearchId(id);
         setSelectedRows(new Set());
-        setDmError(null);
         setError(null);
         setFilter("");
         setHistoryOpen(false);
@@ -329,44 +334,6 @@ export function Dashboard() {
       /* non-fatal */
     }
   }, []);
-
-  const lookupDecisionMakers = useCallback(
-    async (keys: string[]) => {
-      if (keys.length === 0) return;
-      if (!activeSearchId) {
-        setDmError("Run or open a search before finding decision makers.");
-        return;
-      }
-      setDmError(null);
-      setDmLoading((prev) => {
-        const next = new Set(prev);
-        keys.forEach((k) => next.add(k));
-        return next;
-      });
-      try {
-        const res = await fetch("/api/decision-makers", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ searchId: activeSearchId, keys }),
-        });
-        const json = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          throw new Error(json.error || `Lookup failed (${res.status})`);
-        }
-        setLeads((json.leads as Lead[]) || []);
-        setSelectedRows(new Set());
-      } catch (err) {
-        setDmError((err as Error).message);
-      } finally {
-        setDmLoading((prev) => {
-          const next = new Set(prev);
-          keys.forEach((k) => next.delete(k));
-          return next;
-        });
-      }
-    },
-    [activeSearchId]
-  );
 
   const copyAll = useCallback(async () => {
     const cols = [
@@ -497,6 +464,7 @@ export function Dashboard() {
     { label: "Phone" },
     { label: "Website" },
     { label: "Decision Maker" },
+    { label: "LinkedIn" },
     { label: "Likely Pain Point" },
     { label: "Pitch Angle" },
   ];
@@ -522,11 +490,6 @@ export function Dashboard() {
       if (selectableKeys.every((k) => prev.has(k))) return new Set();
       return new Set(selectableKeys);
     });
-  };
-
-  const findSelectedDecisionMakers = () => {
-    const keys = Array.from(selectedRows).slice(0, 10);
-    lookupDecisionMakers(keys);
   };
 
   const emptyMessage = running
@@ -859,24 +822,6 @@ export function Dashboard() {
                   </div>
                 )}
                 <button
-                  onClick={findSelectedDecisionMakers}
-                  disabled={selectedRows.size === 0 || !activeSearchId}
-                  title={
-                    !activeSearchId
-                      ? "Run or open a search first"
-                      : "Find LinkedIn decision makers for the selected leads (up to 10)"
-                  }
-                  className="flex items-center gap-1.5 rounded-full border border-line px-3 py-1.5 text-sm font-medium text-muted transition-colors hover:text-fg disabled:pointer-events-none disabled:opacity-30"
-                >
-                  <Users className="h-4 w-4" />
-                  Decision makers
-                  {selectedRows.size > 0 && (
-                    <span className="rounded-full bg-ink px-1.5 text-[11px] font-semibold text-white">
-                      {Math.min(selectedRows.size, 10)}
-                    </span>
-                  )}
-                </button>
-                <button
                   onClick={copyAll}
                   disabled={leads.length === 0}
                   className="flex items-center gap-1.5 rounded-full border border-line px-3 py-1.5 text-sm font-medium text-muted transition-colors hover:text-fg disabled:pointer-events-none disabled:opacity-30"
@@ -900,13 +845,6 @@ export function Dashboard() {
                 </a>
               </div>
             </div>
-
-            {dmError && (
-              <div className="mb-3 flex items-start gap-2 rounded-xl bg-danger/10 px-3 py-2.5 text-sm text-danger">
-                <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
-                <span>{dmError}</span>
-              </div>
-            )}
 
             {filteredAndSortedLeads.length === 0 ? (
               <div className="flex flex-col items-center justify-center rounded-2xl bg-oat/60 px-6 py-20 text-center">
@@ -968,7 +906,9 @@ export function Dashboard() {
                       const key = leadKey(l);
                       const saved = savedKeys.has(key);
                       const dm = topDecisionMaker(l);
-                      const dmBusy = dmLoading.has(key);
+                      const linkedInUrl = dm?.url || l.websiteLinkedIn || "";
+                      const dmResolved =
+                        l.decisionMakerStatus === "none" || l.decisionMakerStatus === "error";
                       return (
                         <tr
                           key={key || i}
@@ -1037,44 +977,41 @@ export function Dashboard() {
                               <span className="text-muted">-</span>
                             )}
                           </td>
-                          <td className="max-w-48 px-3 py-2">
-                            {dmBusy ? (
-                              <span className="flex items-center gap-1.5 text-muted">
-                                <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-                                Searching
-                              </span>
-                            ) : dm ? (
+                          <td className="max-w-40 px-3 py-2">
+                            {dm ? (
+                              <div className="min-w-0">
+                                <span className="block truncate font-medium text-fg">{dm.name}</span>
+                                {dm.title && (
+                                  <span className="block truncate text-[11px] text-muted">
+                                    {dm.title}
+                                  </span>
+                                )}
+                              </div>
+                            ) : dmResolved ? (
+                              <span className="text-muted">No match</span>
+                            ) : (
+                              <span className="text-muted">-</span>
+                            )}
+                          </td>
+                          <td className="max-w-52 px-3 py-2">
+                            {linkedInUrl ? (
                               <a
-                                href={dm.url}
+                                href={linkedInUrl}
                                 target="_blank"
                                 rel="noreferrer"
                                 onClick={(e) => e.stopPropagation()}
-                                className="flex items-center gap-1.5 font-medium text-fg underline-offset-2 hover:underline"
-                                title={dm.title || undefined}
+                                className="flex items-center gap-1.5 text-fg underline-offset-2 hover:underline"
+                                title={linkedInUrl}
                               >
                                 <ExternalLink className="h-3.5 w-3.5 shrink-0 text-[#0a66c2]" />
-                                <span className="truncate">{dm.name}</span>
+                                <span className="truncate">
+                                  {linkedInUrl.replace(/^https?:\/\/(www\.)?/, "")}
+                                </span>
                               </a>
-                            ) : l.decisionMakerStatus === "none" ||
-                              l.decisionMakerStatus === "error" ? (
+                            ) : dmResolved ? (
                               <span className="text-muted">No match</span>
                             ) : (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  lookupDecisionMakers([key]);
-                                }}
-                                disabled={!activeSearchId}
-                                className="flex items-center gap-1 text-muted transition-colors hover:text-fg disabled:opacity-40"
-                                title={
-                                  activeSearchId
-                                    ? "Find LinkedIn decision makers"
-                                    : "Run or open a search first"
-                                }
-                              >
-                                <ExternalLink className="h-3.5 w-3.5" />
-                                Find
-                              </button>
+                              <span className="text-muted">-</span>
                             )}
                           </td>
                           <td className="max-w-60 px-3 py-2 text-muted">{l.painPoint}</td>
@@ -1153,9 +1090,6 @@ export function Dashboard() {
             : null
         }
         isSaved={selectedLead ? savedKeys.has(leadKey(selectedLead)) : false}
-        dmLoading={selectedLead ? dmLoading.has(leadKey(selectedLead)) : false}
-        canLookup={Boolean(activeSearchId)}
-        onFindDecisionMakers={(l) => lookupDecisionMakers([leadKey(l)])}
         onToggleSave={toggleSave}
         onClose={() => setSelectedLead(null)}
       />
