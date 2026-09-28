@@ -3,7 +3,7 @@
 // cost ~nothing to serve. LLM/SerpApi enrichment stays off for web users.
 
 export const FREE_TRIAL_LEADS = 50;
-export const DAILY_LEAD_CAP = 50;
+export const DAILY_LEAD_CAP = 1000;
 
 export interface CreditPack {
   id: string;

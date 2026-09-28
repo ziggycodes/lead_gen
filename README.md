@@ -36,7 +36,7 @@ everything to CSV or Excel.
 ### Business rules
 
 - Every account gets **50 free leads** (lifetime trial).
-- **50 leads/day** fair-use cap for all accounts.
+- **1,000 leads/day** fair-use cap for all accounts.
 - Credit packs: Starter ₦500 / 150 leads, Standard ₦1,500 / 500 leads, Pro ₦3,000 / 1,200 leads. Credits never expire.
 - Quotas use an atomic **reserve → run → reconcile** flow, so parallel searches can't overspend, and failed runs don't burn credits.
 - Overpass responses are **cached for 7 days** and shared across users.
