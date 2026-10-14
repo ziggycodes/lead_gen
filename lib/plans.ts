@@ -2,8 +2,8 @@
 // All tiers use the free Basic engine (OSM + heuristic pain points), so leads
 // cost ~nothing to serve. LLM/SerpApi enrichment stays off for web users.
 
+// Lead generation itself is unlimited - credit packs don't gate searches.
 export const FREE_TRIAL_LEADS = 50;
-export const DAILY_LEAD_CAP = 1000;
 
 export interface CreditPack {
   id: string;

@@ -30,12 +30,12 @@ export default function TermsPage() {
             </p>
           </section>
           <section>
-            <h2 className="mb-2 font-semibold text-fg">3. Accounts and quotas</h2>
+            <h2 className="mb-2 font-semibold text-fg">3. Accounts and fair use</h2>
             <p>
-              Free accounts receive a one-time trial allowance. Credit packs add to your
-              balance and do not expire. Daily generation limits apply to all accounts to
-              protect upstream data sources. Creating multiple accounts to farm free credits is
-              prohibited.
+              Lead generation is unlimited and no daily cap applies. Searches are paced
+              to protect the upstream data sources we rely on, so large runs take longer
+              to complete. We may throttle or suspend accounts whose usage threatens the
+              stability of those sources or the service.
             </p>
           </section>
           <section>

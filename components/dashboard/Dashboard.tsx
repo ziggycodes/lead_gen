@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
 import { UserButton } from "@clerk/nextjs";
 import {
   Search,
@@ -9,10 +8,9 @@ import {
   Download,
   LoaderCircle,
   X,
-  Sparkles,
   Globe,
   Phone,
-  CreditCard,
+  Infinity as InfinityIcon,
   FileSpreadsheet,
   FileText,
   ListFilter,
@@ -44,12 +42,10 @@ interface StateOpt {
   iso: string;
   name: string;
 }
-interface Quota {
-  balance: number;
-  reserved: number;
+interface Usage {
+  unlimited: boolean;
   consumedToday: number;
-  dailyRemaining: number;
-  available: number;
+  totalConsumed: number;
 }
 
 type SortKey = "name" | "niche" | "state" | "city";
@@ -65,7 +61,7 @@ function topDecisionMaker(lead: Lead): DecisionMaker | null {
 export function Dashboard() {
   const [niches, setNiches] = useState<Niche[]>([]);
   const [states, setStates] = useState<StateOpt[]>([]);
-  const [quota, setQuota] = useState<Quota | null>(null);
+  const [usage, setUsage] = useState<Usage | null>(null);
 
   const [selectedNiches, setSelectedNiches] = useState<Set<string>>(new Set(DEFAULT_NICHES));
   const [selectedStates, setSelectedStates] = useState<Set<string>>(new Set());
@@ -83,7 +79,6 @@ export function Dashboard() {
   const [logs, setLogs] = useState<string[]>([]);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [quotaBlocked, setQuotaBlocked] = useState(false);
   const [filter, setFilter] = useState("");
   const abortRef = useRef<AbortController | null>(null);
   const logRef = useRef<HTMLPreElement | null>(null);
@@ -103,7 +98,7 @@ export function Dashboard() {
       const res = await fetch("/api/usage");
       if (res.ok) {
         const json = await res.json();
-        setQuota(json.quota);
+        setUsage(json.usage);
       }
     } catch {
       /* non-fatal */
@@ -231,7 +226,6 @@ export function Dashboard() {
       return;
     }
     setError(null);
-    setQuotaBlocked(false);
     setLeads([]);
     setLogs([]);
     setProgress(null);
@@ -249,11 +243,61 @@ export function Dashboard() {
     abortRef.current = controller;
 
     try {
+      // #region agent log
+      fetch("http://127.0.0.1:7356/ingest/edc6ece9-d9d8-4c72-941c-15ccbf388031", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "b660e9" },
+        body: JSON.stringify({
+          sessionId: "b660e9",
+          runId: "pre-fix",
+          hypothesisId: "A",
+          location: "Dashboard.tsx:run:start",
+          message: "client starting search fetch",
+          data: { niches: params.get("niches"), states: params.get("states"), limit: params.get("limit") },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {});
+      // #endregion
+      // #region agent log
+      fetch("http://127.0.0.1:7356/ingest/edc6ece9-d9d8-4c72-941c-15ccbf388031", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "e14203" },
+        body: JSON.stringify({
+          sessionId: "e14203",
+          runId: "pre-fix",
+          hypothesisId: "A",
+          location: "Dashboard.tsx:run:start",
+          message: "client starting search fetch",
+          data: { niches: params.get("niches"), states: params.get("states"), limit: params.get("limit") },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {});
+      // #endregion
       const res = await fetch(`/api/search?${params}`, { signal: controller.signal });
+
+      // #region agent log
+      fetch("http://127.0.0.1:7356/ingest/edc6ece9-d9d8-4c72-941c-15ccbf388031", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "b660e9" },
+        body: JSON.stringify({
+          sessionId: "b660e9",
+          runId: "pre-fix",
+          hypothesisId: "A",
+          location: "Dashboard.tsx:run:response",
+          message: "search HTTP response received",
+          data: {
+            status: res.status,
+            ok: res.ok,
+            contentType: res.headers.get("content-type"),
+            hasBody: Boolean(res.body),
+          },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {});
+      // #endregion
 
       if (!res.ok) {
         const json = await res.json().catch(() => ({}));
-        if (res.status === 402) setQuotaBlocked(true);
         throw new Error(json.error || `Search failed (${res.status})`);
       }
       if (!res.body) throw new Error("No response stream.");
@@ -263,10 +307,31 @@ export function Dashboard() {
       let buffer = "";
 
       const handleEvent = (event: string, data: Record<string, unknown>) => {
+        // #region agent log
+        fetch("http://127.0.0.1:7356/ingest/edc6ece9-d9d8-4c72-941c-15ccbf388031", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "b660e9" },
+          body: JSON.stringify({
+            sessionId: "b660e9",
+            runId: "pre-fix",
+            hypothesisId: "C",
+            location: "Dashboard.tsx:handleEvent",
+            message: "SSE event parsed",
+            data: {
+              event,
+              leadCount: Array.isArray(data.leads) ? data.leads.length : 0,
+              logMsg: event === "log" ? String(data.msg || "").slice(0, 160) : undefined,
+            },
+            timestamp: Date.now(),
+          }),
+        }).catch(() => {});
+        // #endregion
         if (event === "log") {
           setLogs((prev) => [...prev.slice(-499), String(data.msg)]);
         } else if (event === "progress") {
           setProgress(data as { step: number; totalSteps: number; total: number; limit: number });
+        } else if (event === "leads") {
+          setLeads((prev) => [...prev, ...((data.leads as Lead[]) || [])]);
         } else if (event === "contact") {
           setLogs((prev) => [
             ...prev.slice(-499),
@@ -278,16 +343,37 @@ export function Dashboard() {
             `Finding LinkedIn decision makers… ${data.done}/${data.total}`,
           ]);
         } else if (event === "done") {
+          // The final payload carries enrichment (emails, decision makers) that
+          // the incremental "leads" events couldn't include yet.
           setLeads((data.leads as Lead[]) || []);
-          if (data.quota) setQuota(data.quota as Quota);
+          if (data.usage) setUsage(data.usage as Usage);
           if (typeof data.searchId === "number") setActiveSearchId(data.searchId);
         } else if (event === "error") {
           setError(String(data.message));
         }
       };
 
+      let sawChunk = false;
       for (;;) {
         const { done, value } = await reader.read();
+        if (!sawChunk) {
+          sawChunk = true;
+          // #region agent log
+          fetch("http://127.0.0.1:7356/ingest/edc6ece9-d9d8-4c72-941c-15ccbf388031", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "e14203" },
+            body: JSON.stringify({
+              sessionId: "e14203",
+              runId: "pre-fix",
+              hypothesisId: "E",
+              location: "Dashboard.tsx:first-chunk",
+              message: "client received first search stream chunk",
+              data: { done, bytes: value?.byteLength ?? 0 },
+              timestamp: Date.now(),
+            }),
+          }).catch(() => {});
+          // #endregion
+        }
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
         const chunks = buffer.split("\n\n");
@@ -305,6 +391,21 @@ export function Dashboard() {
         }
       }
     } catch (err) {
+      // #region agent log
+      fetch("http://127.0.0.1:7356/ingest/edc6ece9-d9d8-4c72-941c-15ccbf388031", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "b660e9" },
+        body: JSON.stringify({
+          sessionId: "b660e9",
+          runId: "pre-fix",
+          hypothesisId: "E",
+          location: "Dashboard.tsx:run:catch",
+          message: "client search fetch failed",
+          data: { name: (err as Error).name, message: (err as Error).message },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {});
+      // #endregion
       if ((err as Error).name !== "AbortError") setError((err as Error).message);
     } finally {
       setRunning(false);
@@ -449,8 +550,6 @@ export function Dashboard() {
     });
   }, [states, selectedStates, stateQuery]);
 
-  const available = quota?.available ?? 0;
-  const effectiveLimit = Math.min(limit, Math.max(available, 0));
   const progressPct = progress
     ? Math.min(100, Math.round((progress.step / Math.max(progress.totalSteps, 1)) * 100))
     : 0;
@@ -504,16 +603,15 @@ export function Dashboard() {
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-6 py-3">
           <Brand href="/app" />
           <div className="flex items-center gap-3">
-            {quota && (
+            {usage && (
               <div className="hidden items-center gap-3 rounded-full border border-line bg-panel px-3.5 py-1.5 text-sm sm:flex">
                 <span className="flex items-center gap-1.5">
-                  <CreditCard className="h-3.5 w-3.5 text-muted" />
-                  <span className="font-semibold text-fg">{quota.balance}</span>
-                  <span className="text-muted">credits</span>
+                  <InfinityIcon className="h-3.5 w-3.5 text-muted" />
+                  <span className="font-semibold text-fg">Unlimited</span>
                 </span>
                 <span className="h-3.5 w-px bg-line" />
                 <span className="text-muted">
-                  <span className="font-semibold text-fg">{quota.dailyRemaining}</span> today
+                  <span className="font-semibold text-fg">{usage.consumedToday}</span> today
                 </span>
                 {stats.total > 0 && (
                   <>
@@ -532,13 +630,6 @@ export function Dashboard() {
               <Clock className="h-3.5 w-3.5" />
               History
             </button>
-            <Link
-              href="/pricing"
-              className="hidden items-center gap-1.5 rounded-full bg-ink px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90 sm:flex"
-            >
-              <Sparkles className="h-3.5 w-3.5 text-accent" />
-              Buy credits
-            </Link>
             <UserButton />
           </div>
         </div>
@@ -699,15 +790,12 @@ export function Dashboard() {
                   min={1}
                   value={limit}
                   onChange={(e) => setLimit(Math.max(1, parseInt(e.target.value, 10) || 1))}
-                  className="w-16 rounded-full border border-line bg-oat px-2.5 py-1.5 text-center text-sm font-semibold text-fg outline-none focus:border-accent"
+                  className="w-20 rounded-full border border-line bg-oat px-2.5 py-1.5 text-center text-sm font-semibold text-fg outline-none focus:border-accent"
                 />
               </label>
-              {quota && (
-                <span className="text-xs text-muted">
-                  Uses up to <span className="font-semibold text-fg">{effectiveLimit}</span> of{" "}
-                  <span className="font-semibold text-fg">{available}</span>
-                </span>
-              )}
+              <span className="text-xs text-muted">
+                No cap - bigger runs just take longer
+              </span>
               <div className="ml-auto flex items-center gap-2">
                 <button
                   onClick={stop}
@@ -718,7 +806,7 @@ export function Dashboard() {
                 </button>
                 <button
                   onClick={run}
-                  disabled={running || available <= 0}
+                  disabled={running}
                   className="flex items-center gap-2 rounded-full bg-accent px-5 py-2.5 text-sm font-semibold text-ink transition-transform hover:-translate-y-0.5 disabled:pointer-events-none disabled:opacity-40"
                 >
                   {running ? (
@@ -735,24 +823,6 @@ export function Dashboard() {
                 </button>
               </div>
             </div>
-
-            {quota && available <= 0 && (
-              <div className="mt-3 rounded-xl bg-oat px-4 py-3 text-sm">
-                <p className="font-medium text-fg">
-                  {quota.balance <= 0
-                    ? "You've used all your lead credits."
-                    : "Daily limit reached — come back tomorrow."}
-                </p>
-                {quota.balance <= 0 && (
-                  <Link
-                    href="/pricing"
-                    className="mt-2 inline-block text-sm font-semibold text-ink underline underline-offset-2"
-                  >
-                    Buy a credit pack
-                  </Link>
-                )}
-              </div>
-            )}
 
             {progress && (
               <div className="mt-3">
@@ -774,14 +844,7 @@ export function Dashboard() {
             {error && (
               <div className="mt-3 flex items-start gap-2 rounded-xl bg-danger/10 px-3 py-2.5 text-sm text-danger">
                 <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
-                <div>
-                  {error}
-                  {quotaBlocked && (
-                    <Link href="/pricing" className="ml-2 font-semibold underline">
-                      Buy credits
-                    </Link>
-                  )}
-                </div>
+                <div>{error}</div>
               </div>
             )}
           </div>

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { MarketingHeader } from "@/components/MarketingHeader";
 import { Footer } from "@/components/Footer";
 import { BuyPackButton } from "@/components/BuyPackButton";
-import { CREDIT_PACKS, formatNaira, FREE_TRIAL_LEADS, DAILY_LEAD_CAP } from "@/lib/plans";
+import { CREDIT_PACKS, formatNaira, FREE_TRIAL_LEADS } from "@/lib/plans";
 
 export const metadata = {
   title: "Pricing — LeadScout",
@@ -76,11 +76,11 @@ export default function PricingPage() {
         </div>
 
         <div className="mx-auto mt-12 max-w-2xl rounded-[1.5rem] border border-line bg-oat p-6 text-sm text-muted">
-          <h3 className="mb-2 font-display font-semibold text-fg">Fair-use limits</h3>
+          <h3 className="mb-2 font-display font-semibold text-fg">Fair use</h3>
           <p>
-            To keep the service fast and free data sources healthy, every account
-            can generate up to {DAILY_LEAD_CAP} leads per day. Need more? Reach
-            out and we&apos;ll sort you out.
+            Lead generation is unlimited - there&apos;s no daily cap on how much you
+            can pull. Searches are paced to keep the free OpenStreetMap data sources
+            healthy, so very large runs simply take longer.
           </p>
         </div>
       </main>

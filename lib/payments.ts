@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { db, schema } from "./db";
-import { addCredits } from "./quota";
+import { addCredits } from "./usage";
 import { verifyTransaction } from "./paystack";
 
 // Verify with Paystack and credit the user exactly once, no matter how many
