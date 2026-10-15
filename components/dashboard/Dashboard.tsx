@@ -243,58 +243,7 @@ export function Dashboard() {
     abortRef.current = controller;
 
     try {
-      // #region agent log
-      fetch("http://127.0.0.1:7356/ingest/edc6ece9-d9d8-4c72-941c-15ccbf388031", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "b660e9" },
-        body: JSON.stringify({
-          sessionId: "b660e9",
-          runId: "pre-fix",
-          hypothesisId: "A",
-          location: "Dashboard.tsx:run:start",
-          message: "client starting search fetch",
-          data: { niches: params.get("niches"), states: params.get("states"), limit: params.get("limit") },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {});
-      // #endregion
-      // #region agent log
-      fetch("http://127.0.0.1:7356/ingest/edc6ece9-d9d8-4c72-941c-15ccbf388031", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "e14203" },
-        body: JSON.stringify({
-          sessionId: "e14203",
-          runId: "pre-fix",
-          hypothesisId: "A",
-          location: "Dashboard.tsx:run:start",
-          message: "client starting search fetch",
-          data: { niches: params.get("niches"), states: params.get("states"), limit: params.get("limit") },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {});
-      // #endregion
       const res = await fetch(`/api/search?${params}`, { signal: controller.signal });
-
-      // #region agent log
-      fetch("http://127.0.0.1:7356/ingest/edc6ece9-d9d8-4c72-941c-15ccbf388031", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "b660e9" },
-        body: JSON.stringify({
-          sessionId: "b660e9",
-          runId: "pre-fix",
-          hypothesisId: "A",
-          location: "Dashboard.tsx:run:response",
-          message: "search HTTP response received",
-          data: {
-            status: res.status,
-            ok: res.ok,
-            contentType: res.headers.get("content-type"),
-            hasBody: Boolean(res.body),
-          },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {});
-      // #endregion
 
       if (!res.ok) {
         const json = await res.json().catch(() => ({}));
@@ -307,25 +256,6 @@ export function Dashboard() {
       let buffer = "";
 
       const handleEvent = (event: string, data: Record<string, unknown>) => {
-        // #region agent log
-        fetch("http://127.0.0.1:7356/ingest/edc6ece9-d9d8-4c72-941c-15ccbf388031", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "b660e9" },
-          body: JSON.stringify({
-            sessionId: "b660e9",
-            runId: "pre-fix",
-            hypothesisId: "C",
-            location: "Dashboard.tsx:handleEvent",
-            message: "SSE event parsed",
-            data: {
-              event,
-              leadCount: Array.isArray(data.leads) ? data.leads.length : 0,
-              logMsg: event === "log" ? String(data.msg || "").slice(0, 160) : undefined,
-            },
-            timestamp: Date.now(),
-          }),
-        }).catch(() => {});
-        // #endregion
         if (event === "log") {
           setLogs((prev) => [...prev.slice(-499), String(data.msg)]);
         } else if (event === "progress") {
@@ -353,27 +283,8 @@ export function Dashboard() {
         }
       };
 
-      let sawChunk = false;
       for (;;) {
         const { done, value } = await reader.read();
-        if (!sawChunk) {
-          sawChunk = true;
-          // #region agent log
-          fetch("http://127.0.0.1:7356/ingest/edc6ece9-d9d8-4c72-941c-15ccbf388031", {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "e14203" },
-            body: JSON.stringify({
-              sessionId: "e14203",
-              runId: "pre-fix",
-              hypothesisId: "E",
-              location: "Dashboard.tsx:first-chunk",
-              message: "client received first search stream chunk",
-              data: { done, bytes: value?.byteLength ?? 0 },
-              timestamp: Date.now(),
-            }),
-          }).catch(() => {});
-          // #endregion
-        }
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
         const chunks = buffer.split("\n\n");
@@ -391,21 +302,6 @@ export function Dashboard() {
         }
       }
     } catch (err) {
-      // #region agent log
-      fetch("http://127.0.0.1:7356/ingest/edc6ece9-d9d8-4c72-941c-15ccbf388031", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "b660e9" },
-        body: JSON.stringify({
-          sessionId: "b660e9",
-          runId: "pre-fix",
-          hypothesisId: "E",
-          location: "Dashboard.tsx:run:catch",
-          message: "client search fetch failed",
-          data: { name: (err as Error).name, message: (err as Error).message },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {});
-      // #endregion
       if ((err as Error).name !== "AbortError") setError((err as Error).message);
     } finally {
       setRunning(false);

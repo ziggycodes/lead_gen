@@ -114,37 +114,7 @@ export async function runSearch(opts, callbacks = {}) {
         const query = buildQuery(stateIso, niche, {
           maxElements: capForElements((limit - leads.length) * 3),
         });
-        // #region agent log
-        fetch("http://127.0.0.1:7356/ingest/edc6ece9-d9d8-4c72-941c-15ccbf388031", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "e14203" },
-          body: JSON.stringify({
-            sessionId: "e14203",
-            runId: "pre-fix",
-            hypothesisId: "D",
-            location: "runSearch.js:before-query",
-            message: "starting overpass query",
-            data: { stateIso, niche: niche.key, step, totalSteps, leads: leads.length },
-            timestamp: Date.now(),
-          }),
-        }).catch(() => {});
-        // #endregion
         const elements = await runQuery(query, { onLog, cache: opts.cache || null, isCancelled });
-        // #region agent log
-        fetch("http://127.0.0.1:7356/ingest/edc6ece9-d9d8-4c72-941c-15ccbf388031", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "b660e9" },
-          body: JSON.stringify({
-            sessionId: "b660e9",
-            runId: "pre-fix",
-            hypothesisId: "B",
-            location: "runSearch.js:query",
-            message: "overpass step returned",
-            data: { stateIso, niche: niche.key, elements: elements.length },
-            timestamp: Date.now(),
-          }),
-        }).catch(() => {});
-        // #endregion
         const rawLeads = elements
           .map((el) => elementToLead(el, { niche: niche.key, nicheLabel: niche.label, stateIso }))
           .filter(Boolean);
@@ -163,21 +133,6 @@ export async function runSearch(opts, callbacks = {}) {
         if (accepted.length) onLeads(accepted);
         onLog(`[${stateName} / ${niche.label}] +${added} new (total ${leads.length}/${limit})`);
       } catch (err) {
-        // #region agent log
-        fetch("http://127.0.0.1:7356/ingest/edc6ece9-d9d8-4c72-941c-15ccbf388031", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "b660e9" },
-          body: JSON.stringify({
-            sessionId: "b660e9",
-            runId: "pre-fix",
-            hypothesisId: "B",
-            location: "runSearch.js:fail",
-            message: "overpass step failed",
-            data: { stateIso, niche: niche.key, error: err.message },
-            timestamp: Date.now(),
-          }),
-        }).catch(() => {});
-        // #endregion
         onLog(`[${stateName} / ${niche.label}] failed: ${err.message}`);
       }
       onProgress({

@@ -65,21 +65,6 @@ function sleep(ms) {
 }
 
 async function postQuery(endpoint, query, timeoutMs) {
-  // #region agent log
-  fetch("http://127.0.0.1:7356/ingest/edc6ece9-d9d8-4c72-941c-15ccbf388031", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "e14203" },
-    body: JSON.stringify({
-      sessionId: "e14203",
-      runId: "pre-fix",
-      hypothesisId: "D",
-      location: "overpass.js:postQuery",
-      message: "overpass request starting",
-      data: { host: hostOf(endpoint), timeoutMs, queryBytes: query.length },
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {});
-  // #endregion
   const res = await fetch(endpoint, {
     method: "POST",
     headers: {
