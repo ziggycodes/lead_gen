@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { and, eq, desc, inArray } from "drizzle-orm";
+import { and, eq, desc } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import { ensureUser, UnauthorizedError } from "@/lib/users";
 import { leadKey, type LeadLike } from "@/lib/leadKey";
+import { crmIdsForLeads } from "@/lib/leads";
 import { filterContactable } from "@/src/contactable.js";
 
 export const dynamic = "force-dynamic";
@@ -28,20 +29,7 @@ export async function GET(req: NextRequest) {
       const leads = filterContactable(
         ((row.resultBlob as LeadLike[]) || []).filter((l) => l && typeof l === "object")
       );
-      const keys = Array.from(new Set(leads.map((l) => leadKey(l))));
-      const idsByKey = new Map<string, number>();
-      for (let i = 0; i < keys.length; i += 1000) {
-        const found = await db()
-          .select({ id: schema.leads.id, leadKey: schema.leads.leadKey })
-          .from(schema.leads)
-          .where(
-            and(
-              eq(schema.leads.userId, user.id),
-              inArray(schema.leads.leadKey, keys.slice(i, i + 1000))
-            )
-          );
-        for (const f of found) idsByKey.set(f.leadKey, f.id);
-      }
+      const idsByKey = await crmIdsForLeads(user.id, leads);
       return NextResponse.json({
         id: row.id,
         params: row.params,

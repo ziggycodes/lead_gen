@@ -6,7 +6,7 @@ import pLimit from "p-limit";
 import { getNiche } from "./niches.js";
 import { listStateIsoCodes, resolveStateInput, stateNameFromIso } from "./usStates.js";
 import { buildQuery, runQuery, sleep, capForElements } from "./overpass.js";
-import { elementToLead, dedupe } from "./parse.js";
+import { elementToLead, dedupe, claimNewEmail, normalizeEmail } from "./parse.js";
 import { enrichLead, enrichmentStatus, enrichConcurrency, resetEnrichWarnings } from "./enrich.js";
 import { scrapeContacts } from "./contactScrape.js";
 import { isContactable } from "./contactable.js";
@@ -153,40 +153,41 @@ export async function runSearch(opts, callbacks = {}) {
           .map((el) => elementToLead(el, { niche: niche.key, nicheLabel: niche.label, stateIso }))
           .filter(Boolean);
         const fresh = dedupe(rawLeads, seen);
-        const ready = [];
+        const emailBefore = new Map();
+        for (const lead of fresh) emailBefore.set(lead, normalizeEmail(lead.email));
+
         const scrapeForEmail = [];
         const scrapeForAdmission = [];
         for (const lead of fresh) {
-          if (isContactable(lead)) {
-            if (leads.length >= limit) break;
-            leads.push(lead);
-            ready.push(lead);
-            if (opts.scrapeContacts && lead.website && !lead.email) scrapeForEmail.push(lead);
-          } else if (lead.website) {
-            scrapeForAdmission.push(lead);
-          }
+          if (!(opts.scrapeContacts && lead.website && !emailBefore.get(lead))) continue;
+          if (isContactable(lead)) scrapeForEmail.push(lead);
+          else scrapeForAdmission.push(lead);
         }
-        if (ready.length) onLeads(ready);
 
-        if (opts.scrapeContacts && scrapeForEmail.length && !isCancelled()) {
+        if (scrapeForEmail.length && !isCancelled()) {
           await scrapeWebsites(scrapeForEmail, { onLog, onContactProgress, isCancelled });
         }
 
-        const admitted = [];
         if (opts.scrapeContacts && leads.length < limit && scrapeForAdmission.length && !isCancelled()) {
           const slots = (limit - leads.length) * ADMISSION_SCRAPE_MULT;
           const batch = scrapeForAdmission.slice(0, Math.min(slots, ADMISSION_SCRAPE_CAP));
           await scrapeWebsites(batch, { onLog, onContactProgress, isCancelled });
-          for (const lead of batch) {
-            if (leads.length >= limit) break;
-            if (!isContactable(lead)) continue;
-            leads.push(lead);
-            admitted.push(lead);
-          }
-          if (admitted.length) onLeads(admitted);
         }
 
-        added = ready.length + admitted.length;
+        // Emit only after emails are scraped, so a shared address collapses
+        // the batch before it is saved.
+        const ready = [];
+        for (const lead of fresh) {
+          if (leads.length >= limit) break;
+          if (!isContactable(lead)) continue;
+          if (!claimNewEmail(lead, seen, emailBefore.get(lead))) continue;
+          leads.push(lead);
+          ready.push(lead);
+        }
+        // The save endpoint accepts 500 leads per request.
+        for (let i = 0; i < ready.length; i += 500) onLeads(ready.slice(i, i + 500));
+
+        added = ready.length;
         onLog(`[${stateName} / ${niche.label}] +${added} contactable (total ${leads.length}/${limit})`);
       } catch (err) {
         onLog(`[${stateName} / ${niche.label}] failed: ${err.message}`);

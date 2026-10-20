@@ -3,8 +3,8 @@
 // links from the HTML. No API key, no cost. Used by BOTH the CLI and the web
 // server via runSearch.js. Never throws: returns empty arrays on any failure.
 
-const REQUEST_TIMEOUT_MS = 6000;
-const MAX_BYTES = 500 * 1024; // 500KB response cap
+const REQUEST_TIMEOUT_MS = 12000;
+const MAX_BYTES = 1024 * 1024; // 1MB response cap
 const MAX_EXTRA_PAGES = 2; // contact/about pages beyond the homepage
 const USER_AGENT =
   "LeadScoutBot/1.0 (+https://leadscout.app; contact discovery for outreach)";
@@ -95,7 +95,7 @@ async function fetchHtml(url) {
     const reader = res.body?.getReader();
     if (!reader) {
       const text = await res.text();
-      return text.slice(0, MAX_BYTES * 2);
+      return text.slice(0, MAX_BYTES);
     }
     const decoder = new TextDecoder();
     let html = "";
@@ -172,22 +172,68 @@ function rankEmails(emails, siteHost) {
   return scored.map((s) => s.email);
 }
 
-// Extract emails from a chunk of HTML: mailto: hrefs first (highest signal),
-// then a text regex over the whole document.
-function extractEmails(html) {
+// Cloudflare email obfuscation: the first byte is the XOR key, and each
+// following byte is the address a visitor sees after the page's own script runs.
+function decodeCfHex(hex) {
+  const clean = String(hex || "").trim();
+  if (!/^[0-9a-f]+$/i.test(clean) || clean.length < 4 || clean.length % 2 !== 0) return "";
+  const key = parseInt(clean.slice(0, 2), 16);
+  let out = "";
+  for (let i = 2; i < clean.length; i += 2) {
+    const code = parseInt(clean.slice(i, i + 2), 16) ^ key;
+    if (code < 32 || code > 126) return "";
+    out += String.fromCharCode(code);
+  }
+  return out;
+}
+
+function addEmail(found, raw) {
+  if (!raw) return;
+  let decoded = String(raw).trim();
+  try {
+    decoded = decodeURIComponent(decoded);
+  } catch {
+    /* keep the raw value when it is not percent-encoded */
+  }
+  if (decoded) found.add(decoded.toLowerCase());
+}
+
+// Numeric character references only. Named entities are left alone so a stray
+// "&amp;" cannot be turned into part of an address.
+function decodeNumericEntities(text) {
+  const printable = (code) => (code >= 32 && code <= 126 ? String.fromCharCode(code) : "");
+  return text
+    .replace(/&#x([0-9a-f]{1,6});?/gi, (all, hex) => printable(parseInt(hex, 16)) || all)
+    .replace(/&#(\d{1,7});?/g, (all, dec) => printable(parseInt(dec, 10)) || all);
+}
+
+// "info [at] shop [dot] com" and the (at) / {at} variants. Spaces around the
+// token are removed so the result is a normal address.
+function deobfuscateAtDot(text) {
+  return text
+    .replace(/\s*[\[{(]\s*at\s*[\])}]\s*/gi, "@")
+    .replace(/\s*[\[{(]\s*dot\s*[\])}]\s*/gi, ".");
+}
+
+// Extract emails from a chunk of HTML: mailto links and form actions first,
+// then Cloudflare-protected addresses, then a text regex over a decoded copy.
+export function extractEmails(html) {
   const found = new Set();
+  if (!html) return [];
 
-  const mailtoRe = /href\s*=\s*["']mailto:([^"'?]+)/gi;
+  const mailtoRe = /(?:href|action)\s*=\s*["']mailto:([^"'?\s]+)/gi;
   let m;
-  while ((m = mailtoRe.exec(html)) !== null) {
-    const decoded = decodeURIComponent(m[1].trim());
-    if (decoded) found.add(decoded.toLowerCase());
-  }
+  while ((m = mailtoRe.exec(html)) !== null) addEmail(found, m[1]);
 
-  const bodyMatches = html.match(EMAIL_RE) || [];
-  for (const raw of bodyMatches) {
-    found.add(raw.toLowerCase());
-  }
+  const cfAttr = /data-cfemail\s*=\s*["']([0-9a-f]+)["']/gi;
+  while ((m = cfAttr.exec(html)) !== null) addEmail(found, decodeCfHex(m[1]));
+
+  const cfHref = /email-protection#([0-9a-f]+)/gi;
+  while ((m = cfHref.exec(html)) !== null) addEmail(found, decodeCfHex(m[1]));
+
+  const text = deobfuscateAtDot(decodeNumericEntities(html));
+  const bodyMatches = text.match(EMAIL_RE) || [];
+  for (const raw of bodyMatches) addEmail(found, raw);
 
   return [...found].filter(isUsableEmail);
 }
@@ -212,32 +258,29 @@ function extractLinkedIn(html) {
   return { profiles: [...profiles], companies: [...companies] };
 }
 
-// Choose up to MAX_EXTRA_PAGES contact-ish pages from the homepage links,
-// falling back to conventional paths when none are linked.
-function pickContactPages(html, base) {
+// Choose up to MAX_EXTRA_PAGES contact-ish pages from the homepage links.
+// Conventional paths fill any slot the homepage did not already use, so a
+// site that only links "About" still gets a contact URL.
+export function pickContactPages(html, base) {
   const wanted = /contact|about|team|staff|our-people|meet/i;
   const picks = [];
   const seen = new Set();
-  for (const href of extractHrefs(html)) {
-    if (!wanted.test(href)) continue;
-    const abs = resolveHref(href, base);
-    if (!abs) continue;
-    if (hostname(abs) !== hostname(base)) continue; // same site only
+  const add = (abs) => {
+    if (!abs || picks.length >= MAX_EXTRA_PAGES) return;
+    if (hostname(abs) !== hostname(base)) return;
     const key = abs.split("#")[0];
-    if (seen.has(key)) continue;
+    if (seen.has(key)) return;
     seen.add(key);
     picks.push(key);
+  };
+  for (const href of extractHrefs(html || "")) {
+    if (!wanted.test(href)) continue;
+    add(resolveHref(href, base));
     if (picks.length >= MAX_EXTRA_PAGES) break;
   }
-  if (picks.length === 0) {
-    for (const path of ["/contact", "/contact-us", "/about"]) {
-      const abs = resolveHref(path, base);
-      if (abs && !seen.has(abs)) {
-        seen.add(abs);
-        picks.push(abs);
-      }
-      if (picks.length >= MAX_EXTRA_PAGES) break;
-    }
+  for (const path of ["/contact", "/contact-us", "/about"]) {
+    if (picks.length >= MAX_EXTRA_PAGES) break;
+    add(resolveHref(path, base));
   }
   return picks;
 }

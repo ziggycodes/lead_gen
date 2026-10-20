@@ -67,22 +67,57 @@ export function elementToLead(el, { niche, nicheLabel, stateIso }) {
   };
 }
 
-// Stable dedupe key: prefer name+city, fall back to name+state.
-function dedupeKey(lead) {
-  const base = lead.name.toLowerCase().replace(/\s+/g, " ").trim();
-  const loc = (lead.city || lead.state || "").toLowerCase().trim();
-  const phone = lead.phone.replace(/\D/g, "");
-  return phone ? `p:${phone}` : `n:${base}|${loc}`;
+function normText(value) {
+  return String(value ?? "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
-// Merge new leads into the seen-set, skipping duplicates. Mutates `seen`.
+export function normalizeEmail(value) {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+// Every identity a lead can share with another. A blank email or phone is not
+// a key. Location is name + city + state, and only when the name and at least
+// one of city or state is present, so the same city does not collapse
+// different businesses.
+export function dedupeKeys(lead) {
+  if (!lead || typeof lead !== "object") return [];
+  const keys = [];
+  const email = normalizeEmail(lead.email);
+  if (email.includes("@")) keys.push(`e:${email}`);
+  const phone = String(lead.phone ?? "").replace(/\D/g, "");
+  if (phone) keys.push(`p:${phone}`);
+  const name = normText(lead.name);
+  const city = normText(lead.city);
+  const state = normText(lead.state);
+  if (name && (city || state)) keys.push(`l:${name}|${city}|${state}`);
+  return keys;
+}
+
+// Merge new leads into the seen-set, skipping any lead that shares an email,
+// phone, or location with one already kept. Mutates `seen`.
 export function dedupe(leads, seen) {
   const out = [];
   for (const lead of leads) {
-    const key = dedupeKey(lead);
-    if (seen.has(key)) continue;
-    seen.add(key);
+    const keys = dedupeKeys(lead);
+    if (keys.some((key) => seen.has(key))) continue;
+    for (const key of keys) seen.add(key);
     out.push(lead);
   }
   return out;
+}
+
+// After a scrape fills in an email, keep the lead unless that address was
+// already claimed. `before` is the address at dedupe time, so a lead that
+// already owned the address is not treated as a new claim. Mutates `seen`.
+export function claimNewEmail(lead, seen, before) {
+  const after = normalizeEmail(lead && lead.email);
+  const prior = normalizeEmail(before);
+  if (!after || after === prior) return true;
+  const key = `e:${after}`;
+  if (seen.has(key)) return false;
+  seen.add(key);
+  return true;
 }
