@@ -1,6 +1,6 @@
 // Niche catalog: maps a friendly niche key to the OSM tag filters used to find
 // those businesses, a display label, and a "category" that drives the
-// pain-point heuristics in painPoints.js.
+// niche grouping.
 //
 // `filters` is an array of { k, v } tag selectors. A POI matches the niche if it
 // matches ANY of the filters. The Overpass query expands each filter into both a

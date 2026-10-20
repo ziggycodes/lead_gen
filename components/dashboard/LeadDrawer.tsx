@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   X,
   Star,
@@ -8,64 +8,263 @@ import {
   Globe,
   Mail,
   MapPin,
-  Lightbulb,
-  Target,
-  Radio,
   Copy,
   Check,
   ExternalLink,
   Users,
+  User,
+  Pencil,
+  Trash2,
+  CalendarClock,
+  LoaderCircle,
+  StickyNote,
+  History,
+  CircleAlert,
+  Search,
 } from "lucide-react";
-import type { Lead } from "./types";
+import { LEAD_STATUSES, STATUS_LABELS, isLeadStatus } from "@/lib/crm";
+import type { CrmLead, LeadActivity, LeadNote } from "./types";
+import {
+  addNote,
+  deleteLead,
+  deleteNote,
+  fetchLeadDetail,
+  lookupDecisionMakers,
+  updateLead,
+} from "./crmApi";
+import { formatDate, formatDateTime, isFollowUpDue, location, toDateInput } from "./format";
+import { StatusPill } from "./StatusPill";
 
-function leadToText(l: Lead): string {
+type EditForm = Record<
+  "name" | "contactName" | "email" | "phone" | "website" | "address" | "city" | "state",
+  string
+>;
+
+const FIELD_LABELS: Record<string, string> = {
+  name: "business name",
+  contactName: "contact name",
+  email: "email",
+  phone: "phone",
+  website: "website",
+  address: "address",
+  city: "city",
+  state: "state",
+};
+
+function statusLabel(s: unknown): string {
+  return isLeadStatus(s) ? STATUS_LABELS[s] : String(s ?? "");
+}
+
+function describeActivity(a: LeadActivity): string {
+  const d = a.detail || {};
+  switch (a.type) {
+    case "imported":
+      if (d.via === "saved") return "Imported from saved leads";
+      if (d.via === "history") return "Imported from search history";
+      return "Added from a search";
+    case "status_changed":
+      return `Status changed from ${statusLabel(d.from)} to ${statusLabel(d.to)}`;
+    case "saved":
+      return "Saved";
+    case "unsaved":
+      return "Removed from saved";
+    case "note_added":
+      return "Note added";
+    case "updated": {
+      const fields = Array.isArray(d.fields) ? (d.fields as string[]) : [];
+      return fields.length
+        ? `Updated ${fields.map((f) => FIELD_LABELS[f] || f).join(", ")}`
+        : "Details updated";
+    }
+    case "follow_up_set":
+      return d.at ? `Follow-up set for ${formatDate(String(d.at))}` : "Follow-up cleared";
+    case "decision_makers_found":
+      return `Found ${d.count ?? ""} decision maker${d.count === 1 ? "" : "s"}`;
+    default:
+      return a.type;
+  }
+}
+
+export function leadToText(l: CrmLead): string {
   const dmLines = (l.decisionMakers || []).map(
     (dm) => `Decision maker: ${dm.name}${dm.title ? ` (${dm.title})` : ""} ${dm.url}`
   );
   return [
     l.name,
+    `Status: ${statusLabel(l.status)}`,
     l.niche && `Niche: ${l.niche}`,
-    (l.city || l.state) && `Location: ${[l.city, l.state].filter(Boolean).join(", ")}`,
+    (l.city || l.state) && `Location: ${location(l.city, l.state)}`,
+    l.contactName && `Contact: ${l.contactName}`,
     l.phone && `Phone: ${l.phone}`,
     l.website && `Website: ${l.website}`,
     l.email && `Email: ${l.email}`,
     l.address && `Address: ${l.address}`,
     ...dmLines,
-    l.painPoint && `Pain point: ${l.painPoint}`,
-    l.pitchAngle && `Pitch angle: ${l.pitchAngle}`,
   ]
     .filter(Boolean)
     .join("\n");
 }
 
+function formFromLead(l: CrmLead): EditForm {
+  return {
+    name: l.name,
+    contactName: l.contactName,
+    email: l.email,
+    phone: l.phone,
+    website: l.website,
+    address: l.address,
+    city: l.city,
+    state: l.state,
+  };
+}
+
 export function LeadDrawer({
-  lead,
-  isSaved,
-  onToggleSave,
+  leadId,
   onClose,
+  onLeadChange,
+  onLeadDeleted,
+  embedded = false,
 }: {
-  lead: Lead | null;
-  isSaved: boolean;
-  onToggleSave: (lead: Lead) => void;
+  leadId: number | null;
   onClose: () => void;
+  onLeadChange: (lead: CrmLead) => void;
+  onLeadDeleted: (id: number) => void;
+  embedded?: boolean;
 }) {
+  const [lead, setLead] = useState<CrmLead | null>(null);
+  const [notes, setNotes] = useState<LeadNote[]>([]);
+  const [activities, setActivities] = useState<LeadActivity[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState<EditForm | null>(null);
+  const [noteDraft, setNoteDraft] = useState("");
+  const [dmLoading, setDmLoading] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  const applyDetail = useCallback(
+    (d: { lead: CrmLead; notes: LeadNote[]; activities: LeadActivity[] }) => {
+      setLead(d.lead);
+      setNotes(d.notes);
+      setActivities(d.activities);
+      onLeadChange(d.lead);
+    },
+    [onLeadChange]
+  );
 
   useEffect(() => {
+    setLead(null);
+    setNotes([]);
+    setActivities([]);
+    setError(null);
+    setEditing(false);
+    setNoteDraft("");
+    setConfirmDelete(false);
     setCopied(false);
-  }, [lead]);
+    if (leadId === null) return;
+
+    let cancelled = false;
+    setLoading(true);
+    fetchLeadDetail(leadId)
+      .then((d) => {
+        if (cancelled) return;
+        setLead(d.lead);
+        setNotes(d.notes);
+        setActivities(d.activities);
+      })
+      .catch((err) => !cancelled && setError((err as Error).message))
+      .finally(() => !cancelled && setLoading(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [leadId]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
-    if (lead) window.addEventListener("keydown", onKey);
+    if (leadId !== null) window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [lead, onClose]);
+  }, [leadId, onClose]);
 
-  if (!lead) return null;
+  if (leadId === null) {
+    if (!embedded) return null;
+    return (
+      <aside className="flex h-full min-h-0 w-full flex-col items-center justify-center bg-panel px-8 text-center">
+        <p className="font-display text-base font-semibold">No lead open</p>
+        <p className="mt-1.5 max-w-64 text-sm text-muted">
+          Select a business to see notes, follow-ups, and contact details.
+        </p>
+      </aside>
+    );
+  }
+
+  const run = async (fn: () => Promise<void>) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await fn();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const patch = (body: Parameters<typeof updateLead>[1]) =>
+    run(async () => {
+      if (!lead) return;
+      applyDetail(await updateLead(lead.id, body));
+    });
+
+  const saveEdits = () =>
+    run(async () => {
+      if (!lead || !form) return;
+      applyDetail(await updateLead(lead.id, { fields: form }));
+      setEditing(false);
+    });
+
+  const submitNote = () =>
+    run(async () => {
+      if (!lead || !noteDraft.trim()) return;
+      await addNote(lead.id, noteDraft);
+      setNoteDraft("");
+      applyDetail(await fetchLeadDetail(lead.id));
+    });
+
+  const removeNote = (noteId: number) =>
+    run(async () => {
+      if (!lead) return;
+      await deleteNote(lead.id, noteId);
+      setNotes((prev) => prev.filter((n) => n.id !== noteId));
+    });
+
+  const findDecisionMakers = async () => {
+    if (!lead) return;
+    setDmLoading(true);
+    setError(null);
+    try {
+      await lookupDecisionMakers(lead.id);
+      applyDetail(await fetchLeadDetail(lead.id));
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setDmLoading(false);
+    }
+  };
+
+  const remove = () =>
+    run(async () => {
+      if (!lead) return;
+      await deleteLead(lead.id);
+      onLeadDeleted(lead.id);
+      onClose();
+    });
 
   const copyDetails = async () => {
+    if (!lead) return;
     try {
       await navigator.clipboard.writeText(leadToText(lead));
       setCopied(true);
@@ -75,26 +274,42 @@ export function LeadDrawer({
     }
   };
 
+  const followUpDue = lead ? isFollowUpDue(lead.followUpAt) : false;
+  const otherEmails = lead ? lead.emailsFound.filter((e) => e && e !== lead.email) : [];
+
+  const frame = embedded
+    ? "flex h-full min-h-0 w-full flex-col bg-panel"
+    : "absolute right-0 top-0 flex h-full w-full max-w-lg flex-col border-l border-line bg-panel shadow-xl";
+
   return (
-    <div className="fixed inset-0 z-40">
-      <div
-        className="absolute inset-0 bg-ink/20 backdrop-blur-[1px]"
-        onClick={onClose}
-        aria-hidden
-      />
-      <aside className="absolute right-0 top-0 flex h-full w-full max-w-md flex-col border-l border-line bg-panel shadow-xl">
+    <div className={embedded ? "flex h-full min-h-0 w-full flex-col" : "fixed inset-0 z-40"}>
+      {!embedded && (
+        <div
+          className="absolute inset-0 bg-ink/20 backdrop-blur-[1px]"
+          onClick={onClose}
+          aria-hidden
+        />
+      )}
+      <aside className={frame}>
         <div className="flex items-start justify-between gap-3 border-b border-line bg-oat px-5 py-4">
           <div className="min-w-0">
-            <h2 className="truncate font-display text-lg font-semibold tracking-tight">{lead.name}</h2>
-            <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted">
-              <span className="rounded-full bg-accent/25 px-2 py-0.5 font-medium text-ink">
-                {lead.niche}
-              </span>
-              <span className="flex items-center gap-1">
-                <MapPin className="h-3 w-3" />
-                {[lead.city, lead.state].filter(Boolean).join(", ") || "-"}
-              </span>
-            </p>
+            <h2 className="truncate font-display text-lg font-semibold tracking-tight">
+              {lead?.name || (loading ? "Loading…" : "Lead")}
+            </h2>
+            {lead && (
+              <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted">
+                <StatusPill status={lead.status} />
+                {lead.niche && (
+                  <span className="rounded-full bg-accent/25 px-2 py-0.5 font-medium text-ink">
+                    {lead.niche}
+                  </span>
+                )}
+                <span className="flex items-center gap-1">
+                  <MapPin className="h-3 w-3" />
+                  {location(lead.city, lead.state) || "-"}
+                </span>
+              </p>
+            )}
           </div>
           <button
             onClick={onClose}
@@ -105,86 +320,312 @@ export function LeadDrawer({
           </button>
         </div>
 
-        <div className="flex gap-2 border-b border-line px-5 py-3">
-          <button
-            onClick={() => onToggleSave(lead)}
-            className={`flex flex-1 items-center justify-center gap-1.5 rounded-full px-3 py-2 text-sm font-semibold transition ${
-              isSaved
-                ? "bg-ink text-white shadow-sm hover:opacity-90"
-                : "border border-line text-fg hover:border-accent hover:text-accent"
-            }`}
-          >
-            <Star className={`h-4 w-4 ${isSaved ? "fill-current" : ""}`} />
-            {isSaved ? "Saved" : "Save lead"}
-          </button>
-          <button
-            onClick={copyDetails}
-            className="flex flex-1 items-center justify-center gap-1.5 rounded-full border border-line px-3 py-2 text-sm font-semibold text-fg transition hover:border-mint hover:text-mint"
-          >
-            {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-            {copied ? "Copied" : "Copy details"}
-          </button>
-        </div>
-
-        <div className="scroll-thin flex-1 overflow-y-auto px-5 py-4">
-          <dl className="space-y-3">
-            <DetailRow icon={<Phone className="h-4 w-4" />} label="Phone">
-              {lead.phone || <span className="text-muted">Not available</span>}
-            </DetailRow>
-            <DetailRow icon={<Globe className="h-4 w-4" />} label="Website">
-              {lead.website ? (
-                <a
-                  href={lead.website}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-accent hover:underline"
+        {loading && !lead ? (
+          <div className="grid flex-1 place-items-center">
+            <LoaderCircle className="h-6 w-6 animate-spin text-muted" />
+          </div>
+        ) : !lead ? (
+          <div className="p-5 text-sm text-danger">{error || "Lead not found."}</div>
+        ) : (
+          <>
+            {/* Pipeline controls */}
+            <div className="space-y-3 border-b border-line px-5 py-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="flex flex-1 items-center gap-2 text-xs font-medium text-muted">
+                  Status
+                  <select
+                    value={lead.status}
+                    disabled={busy}
+                    onChange={(e) => patch({ status: e.target.value })}
+                    className="flex-1 rounded-full border border-line bg-panel px-3 py-1.5 text-sm font-semibold text-fg outline-none focus:border-accent"
+                  >
+                    {LEAD_STATUSES.map((s) => (
+                      <option key={s} value={s}>
+                        {STATUS_LABELS[s]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  onClick={() => patch({ saved: !lead.saved })}
+                  disabled={busy}
+                  className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-semibold transition ${
+                    lead.saved
+                      ? "bg-ink text-white hover:opacity-90"
+                      : "border border-line text-fg hover:border-accent"
+                  }`}
                 >
-                  {lead.website.replace(/^https?:\/\//, "")}
-                </a>
-              ) : (
-                <span className="text-muted">Not available</span>
-              )}
-            </DetailRow>
-            <DetailRow icon={<Mail className="h-4 w-4" />} label="Email">
-              {lead.email || <span className="text-muted">Not available</span>}
-            </DetailRow>
-            <DetailRow icon={<MapPin className="h-4 w-4" />} label="Address">
-              {lead.address || <span className="text-muted">Not available</span>}
-            </DetailRow>
-            <DetailRow icon={<Lightbulb className="h-4 w-4" />} label="Likely pain point">
-              {lead.painPoint || <span className="text-muted">-</span>}
-            </DetailRow>
-            <DetailRow icon={<Target className="h-4 w-4" />} label="Pitch angle">
-              <span className="text-mint">{lead.pitchAngle || "-"}</span>
-            </DetailRow>
-            {lead.signals && (
-              <DetailRow icon={<Radio className="h-4 w-4" />} label="Signals">
-                {lead.signals}
-              </DetailRow>
-            )}
-            <DetailRow icon={<Users className="h-4 w-4" />} label="Decision makers">
-              <DecisionMakerBlock lead={lead} />
-            </DetailRow>
-          </dl>
+                  <Star className={`h-4 w-4 ${lead.saved ? "fill-current" : ""}`} />
+                  {lead.saved ? "Saved" : "Save"}
+                </button>
+                <button
+                  onClick={copyDetails}
+                  className="flex items-center gap-1.5 rounded-full border border-line px-3 py-1.5 text-sm font-semibold text-fg transition hover:border-accent"
+                >
+                  {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                  {copied ? "Copied" : "Copy"}
+                </button>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-muted">
+                <CalendarClock className={`h-4 w-4 ${followUpDue ? "text-danger" : ""}`} />
+                <span className={followUpDue ? "text-danger" : ""}>
+                  {followUpDue ? "Follow-up due" : "Follow up on"}
+                </span>
+                <input
+                  type="date"
+                  value={toDateInput(lead.followUpAt)}
+                  disabled={busy}
+                  onChange={(e) =>
+                    patch({
+                      followUpAt: e.target.value
+                        ? new Date(`${e.target.value}T09:00:00`).toISOString()
+                        : null,
+                    })
+                  }
+                  className="rounded-full border border-line bg-panel px-3 py-1 text-sm text-fg outline-none focus:border-accent"
+                />
+                {lead.followUpAt && (
+                  <button
+                    onClick={() => patch({ followUpAt: null })}
+                    disabled={busy}
+                    className="text-muted underline-offset-2 hover:text-fg hover:underline"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+            </div>
 
-          {lead.osmLink && (
-            <a
-              href={lead.osmLink}
-              target="_blank"
-              rel="noreferrer"
-              className="mt-5 flex items-center justify-center gap-1.5 rounded-full border border-line px-3 py-2.5 text-sm font-medium text-fg transition hover:border-accent hover:text-accent"
-            >
-              <ExternalLink className="h-4 w-4" />
-              View on OpenStreetMap
-            </a>
-          )}
-        </div>
+            <div className="scroll-thin flex-1 space-y-6 overflow-y-auto px-5 py-4">
+              {error && (
+                <div className="flex items-start gap-2 rounded-xl bg-danger/10 px-3 py-2.5 text-sm text-danger">
+                  <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+                  <div>{error}</div>
+                </div>
+              )}
+
+              {/* Details */}
+              <section>
+                <div className="mb-3 flex items-center justify-between">
+                  <h3 className="font-display text-sm font-semibold text-fg">Details</h3>
+                  {!editing && (
+                    <button
+                      onClick={() => {
+                        setForm(formFromLead(lead));
+                        setEditing(true);
+                      }}
+                      className="flex items-center gap-1 text-xs font-medium text-muted hover:text-fg"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                      Edit
+                    </button>
+                  )}
+                </div>
+
+                {editing && form ? (
+                  <div className="space-y-2.5">
+                    {(Object.keys(FIELD_LABELS) as (keyof EditForm)[]).map((field) => (
+                      <label key={field} className="block">
+                        <span className="text-xs font-medium capitalize text-muted">
+                          {FIELD_LABELS[field]}
+                        </span>
+                        <input
+                          value={form[field]}
+                          onChange={(e) => setForm({ ...form, [field]: e.target.value })}
+                          className="mt-1 w-full rounded-lg border border-line bg-oat px-3 py-1.5 text-sm text-fg outline-none focus:border-accent focus:bg-panel"
+                        />
+                      </label>
+                    ))}
+                    <div className="flex justify-end gap-2 pt-1">
+                      <button
+                        onClick={() => setEditing(false)}
+                        className="rounded-full px-3 py-1.5 text-sm font-medium text-muted hover:text-fg"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={saveEdits}
+                        disabled={busy}
+                        className="rounded-full bg-accent px-4 py-1.5 text-sm font-semibold text-ink disabled:opacity-50"
+                      >
+                        Save changes
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <dl className="space-y-3">
+                    <DetailRow icon={<User className="h-4 w-4" />} label="Contact">
+                      {lead.contactName || <span className="text-muted">Not set</span>}
+                    </DetailRow>
+                    <DetailRow icon={<Mail className="h-4 w-4" />} label="Email">
+                      {lead.email ? (
+                        <a href={`mailto:${lead.email}`} className="text-fg hover:underline">
+                          {lead.email}
+                        </a>
+                      ) : (
+                        <span className="text-muted">Not available</span>
+                      )}
+                      {otherEmails.length > 0 && (
+                        <span className="mt-0.5 block text-xs text-muted">
+                          Also found: {otherEmails.join(", ")}
+                        </span>
+                      )}
+                    </DetailRow>
+                    <DetailRow icon={<Phone className="h-4 w-4" />} label="Phone">
+                      {lead.phone ? (
+                        <a href={`tel:${lead.phone}`} className="text-fg hover:underline">
+                          {lead.phone}
+                        </a>
+                      ) : (
+                        <span className="text-muted">Not available</span>
+                      )}
+                    </DetailRow>
+                    <DetailRow icon={<Globe className="h-4 w-4" />} label="Website">
+                      {lead.website ? (
+                        <a
+                          href={lead.website}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-fg hover:underline"
+                        >
+                          {lead.website.replace(/^https?:\/\//, "")}
+                        </a>
+                      ) : (
+                        <span className="text-muted">Not available</span>
+                      )}
+                    </DetailRow>
+                    <DetailRow icon={<MapPin className="h-4 w-4" />} label="Address">
+                      {lead.address || location(lead.city, lead.state) || (
+                        <span className="text-muted">Not available</span>
+                      )}
+                    </DetailRow>
+                    <DetailRow icon={<Users className="h-4 w-4" />} label="Decision makers">
+                      <DecisionMakerBlock lead={lead} />
+                      {!lead.decisionMakers?.length && (
+                        <button
+                          onClick={findDecisionMakers}
+                          disabled={dmLoading}
+                          className="mt-1.5 flex items-center gap-1.5 text-xs font-medium text-fg underline-offset-2 hover:underline disabled:opacity-50"
+                        >
+                          {dmLoading ? (
+                            <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Search className="h-3.5 w-3.5" />
+                          )}
+                          {dmLoading ? "Searching LinkedIn…" : "Find decision makers"}
+                        </button>
+                      )}
+                    </DetailRow>
+                  </dl>
+                )}
+              </section>
+
+              {/* Notes */}
+              <section>
+                <h3 className="mb-3 flex items-center gap-1.5 font-display text-sm font-semibold text-fg">
+                  <StickyNote className="h-4 w-4 text-muted" />
+                  Notes
+                </h3>
+                <textarea
+                  value={noteDraft}
+                  onChange={(e) => setNoteDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submitNote();
+                  }}
+                  placeholder="Add a note: call outcome, who you spoke to, next steps…"
+                  rows={3}
+                  className="w-full resize-y rounded-xl border border-line bg-oat px-3 py-2 text-sm text-fg outline-none focus:border-accent focus:bg-panel"
+                />
+                <div className="mt-2 flex justify-end">
+                  <button
+                    onClick={submitNote}
+                    disabled={busy || !noteDraft.trim()}
+                    className="rounded-full bg-ink px-4 py-1.5 text-sm font-semibold text-white disabled:opacity-40"
+                  >
+                    Add note
+                  </button>
+                </div>
+                {notes.length > 0 && (
+                  <ul className="mt-3 space-y-2">
+                    {notes.map((n) => (
+                      <li key={n.id} className="group rounded-xl border border-line bg-panel p-3">
+                        <p className="whitespace-pre-wrap break-words text-sm text-fg">{n.body}</p>
+                        <div className="mt-1.5 flex items-center justify-between text-[11px] text-muted">
+                          <span>{formatDateTime(n.createdAt)}</span>
+                          <button
+                            onClick={() => removeNote(n.id)}
+                            className="opacity-0 transition hover:text-danger group-hover:opacity-100"
+                            aria-label="Delete note"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+
+              {/* Activity */}
+              <section>
+                <h3 className="mb-3 flex items-center gap-1.5 font-display text-sm font-semibold text-fg">
+                  <History className="h-4 w-4 text-muted" />
+                  Activity
+                </h3>
+                {activities.length === 0 ? (
+                  <p className="text-sm text-muted">No activity yet.</p>
+                ) : (
+                  <ol className="relative space-y-3 border-l border-line pl-4">
+                    {activities.map((a) => (
+                      <li key={a.id} className="relative">
+                        <span className="absolute -left-[21px] top-1.5 h-2.5 w-2.5 rounded-full border-2 border-panel bg-accent" />
+                        <p className="text-sm text-fg">{describeActivity(a)}</p>
+                        <p className="text-[11px] text-muted">{formatDateTime(a.createdAt)}</p>
+                      </li>
+                    ))}
+                  </ol>
+                )}
+              </section>
+            </div>
+
+            <div className="flex items-center gap-2 border-t border-line px-5 py-3">
+              <div className="ml-auto flex items-center gap-2">
+                {confirmDelete ? (
+                  <>
+                    <span className="text-xs text-muted">Delete this lead?</span>
+                    <button
+                      onClick={() => setConfirmDelete(false)}
+                      className="rounded-full px-3 py-1.5 text-sm font-medium text-muted hover:text-fg"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={remove}
+                      disabled={busy}
+                      className="rounded-full bg-danger px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
+                    >
+                      Delete
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    onClick={() => setConfirmDelete(true)}
+                    className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium text-muted transition hover:text-danger"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    Delete
+                  </button>
+                )}
+              </div>
+            </div>
+          </>
+        )}
       </aside>
     </div>
   );
 }
 
-function DecisionMakerBlock({ lead }: { lead: Lead }) {
+function DecisionMakerBlock({ lead }: { lead: CrmLead }) {
   const matches = lead.decisionMakers || [];
   if (matches.length > 0) {
     return (
@@ -199,7 +640,7 @@ function DecisionMakerBlock({ lead }: { lead: Lead }) {
                 href={dm.url}
                 target="_blank"
                 rel="noreferrer"
-                className="block truncate text-xs text-accent hover:underline"
+                className="block truncate text-xs text-fg hover:underline"
               >
                 {dm.url.replace(/^https?:\/\/(www\.)?/, "")}
               </a>
@@ -222,7 +663,7 @@ function DecisionMakerBlock({ lead }: { lead: Lead }) {
           href={lead.websiteLinkedIn}
           target="_blank"
           rel="noreferrer"
-          className="block truncate text-xs text-accent hover:underline"
+          className="block truncate text-xs text-fg hover:underline"
         >
           {lead.websiteLinkedIn.replace(/^https?:\/\/(www\.)?/, "")}
         </a>
@@ -234,7 +675,7 @@ function DecisionMakerBlock({ lead }: { lead: Lead }) {
     return <span className="text-muted">No reliable match found.</span>;
   }
 
-  return <span className="text-muted">Not available.</span>;
+  return <span className="text-muted">Not looked up yet.</span>;
 }
 
 function DetailRow({

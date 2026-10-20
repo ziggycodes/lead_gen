@@ -30,7 +30,7 @@ export default async function BillingCallbackPage({
       <main className="mx-auto flex max-w-xl flex-col items-center px-6 py-24 text-center">
         {ok ? (
           <>
-            <span className="mb-6 grid h-16 w-16 place-items-center rounded-full bg-mint/20 text-3xl">
+            <span className="mb-6 grid h-16 w-16 place-items-center rounded-full bg-accent/25 text-3xl">
               &#10003;
             </span>
             <h1 className="font-display text-3xl font-semibold tracking-tight">Payment successful</h1>
@@ -56,10 +56,10 @@ export default async function BillingCallbackPage({
               reference: <span className="font-mono text-fg">{reference || "unknown"}</span>
             </p>
             <Link
-              href="/pricing"
+              href="/app"
               className="mt-8 rounded-full border border-line px-6 py-3 text-sm font-semibold hover:border-ink"
             >
-              Back to pricing
+              Back to the app
             </Link>
           </>
         )}

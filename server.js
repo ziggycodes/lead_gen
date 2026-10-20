@@ -44,7 +44,7 @@ app.get("/api/config", (req, res) => {
   res.json(publicConfig());
 });
 
-// Streaming search via Server-Sent Events. Enrichment auto-runs when API keys are in .env.
+// Streaming search via Server-Sent Events. Ratings enrichment auto-runs when SERPAPI_KEY is in .env.
 app.get("/api/search", async (req, res) => {
   res.writeHead(200, {
     "Content-Type": "text/event-stream",

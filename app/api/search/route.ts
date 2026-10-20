@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import { ensureUser, UnauthorizedError } from "@/lib/users";
 import { recordUsage, getUsage } from "@/lib/usage";
+import { filterContactable } from "@/src/contactable.js";
 
 export const dynamic = "force-dynamic";
 // Vercel caps this at 300s on Hobby and 800s on Pro; higher values fail the deploy.
@@ -65,6 +66,7 @@ export async function GET(req: NextRequest) {
   });
 
   const userId = user.id;
+
   const stream = new ReadableStream({
     async start(controller) {
       const send = (event: string, data: unknown) => {
@@ -109,8 +111,10 @@ export async function GET(req: NextRequest) {
             // Push rows to the table as they're found so a long run shows
             // results immediately instead of only at the end.
             onLeads: (fresh: unknown[]) => {
-              collected.push(...fresh);
-              send("leads", { leads: fresh });
+              const keep = filterContactable(fresh);
+              if (!keep.length) return;
+              collected.push(...keep);
+              send("leads", { leads: keep });
             },
             onContactProgress: (p: unknown) => send("contact", p),
             onDecisionMakerProgress: (p: unknown) => send("decision", p),
@@ -118,28 +122,35 @@ export async function GET(req: NextRequest) {
           }
         );
 
-        await recordUsage(userId, leads.length);
+        const contactable = filterContactable(leads);
+        await recordUsage(userId, contactable.length);
         await db()
           .update(schema.searches)
           .set({
             status: cancelled ? "cancelled" : "completed",
-            leadCount: leads.length,
-            resultBlob: leads,
+            leadCount: contactable.length,
+            resultBlob: contactable,
             completedAt: new Date(),
           })
           .where(eq(schema.searches.id, searchRow.id));
 
         const usage = await getUsage(userId);
-        send("done", { summary, leads, usage, searchId: searchRow.id });
+        send("done", {
+          summary: { ...summary, total: contactable.length },
+          leads: contactable,
+          usage,
+          searchId: searchRow.id,
+        });
       } catch (err) {
-        await recordUsage(userId, collected.length);
+        const kept = filterContactable(collected);
+        await recordUsage(userId, kept.length);
         await db()
           .update(schema.searches)
           .set({
             status: "failed",
             error: (err as Error).message,
-            leadCount: collected.length,
-            resultBlob: collected,
+            leadCount: kept.length,
+            resultBlob: kept,
             completedAt: new Date(),
           })
           .where(eq(schema.searches.id, searchRow.id));

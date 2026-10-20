@@ -8,9 +8,6 @@ export function Footer() {
           © {new Date().getFullYear()} leadscout. Made in Nigeria.
         </p>
         <nav className="flex gap-6">
-          <Link href="/pricing" className="transition-colors hover:text-fg">
-            Pricing
-          </Link>
           <Link href="/terms" className="transition-colors hover:text-fg">
             Terms
           </Link>

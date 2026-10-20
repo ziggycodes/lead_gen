@@ -143,7 +143,6 @@ function startSearch() {
     renderResults(leads, summary);
     $("#progress-fill").style.width = "100%";
     let doneMsg = `Done - ${summary.total} leads collected (${summary.tier || "basic"} mode).`;
-    if (summary.llmEnriched) doneMsg += ` ${summary.llmEnriched} LLM-enriched.`;
     if (summary.withRating) doneMsg += ` ${summary.withRating} with ratings.`;
     $("#progress-text").textContent = doneMsg;
     cleanup();
@@ -191,7 +190,6 @@ function renderResults(leads, summary) {
     `<span class="stat"><b>${summary.withPhone}</b> with phone</span>` +
     `<span class="stat"><b>${summary.withWebsite}</b> with website</span>`;
   if (summary.withRating) html += `<span class="stat"><b>${summary.withRating}</b> with ratings</span>`;
-  if (summary.llmEnriched) html += `<span class="stat"><b>${summary.llmEnriched}</b> LLM-enriched</span>`;
   stats.innerHTML = html;
 
   $("#filter").classList.toggle("hidden", leads.length === 0);
@@ -204,7 +202,7 @@ function renderResults(leads, summary) {
 function renderRows(leads) {
   const body = $("#leads-body");
   if (!leads.length) {
-    body.innerHTML = `<tr class="empty-row"><td colspan="10">No matching results.</td></tr>`;
+    body.innerHTML = `<tr class="empty-row"><td colspan="9">No matching results.</td></tr>`;
     return;
   }
   const rows = leads
@@ -212,7 +210,6 @@ function renderRows(leads) {
       const site = l.website
         ? `<a href="${escapeHtml(l.website)}" target="_blank" rel="noopener">link</a>`
         : "<span class='badge'>none</span>";
-      const llmTag = l.llmEnriched ? " <span class='badge badge-llm'>AI</span>" : "";
       return `<tr>
         <td>${escapeHtml(l.name)}</td>
         <td>${escapeHtml(l.niche)}</td>
@@ -222,8 +219,7 @@ function renderRows(leads) {
         <td>${site}</td>
         <td>${fmtRating(l.rating)}</td>
         <td>${fmtRating(l.reviewCount)}</td>
-        <td class="pain">${escapeHtml(l.painPoint)}${llmTag}</td>
-        <td class="pitch">${escapeHtml(l.pitchAngle)}</td>
+        <td>${escapeHtml(l.email) || "<span class='badge'>none</span>"}</td>
       </tr>`;
     })
     .join("");
@@ -234,7 +230,7 @@ $("#filter").addEventListener("input", (e) => {
   const q = e.target.value.toLowerCase().trim();
   if (!q) return renderRows(state.leads);
   const filtered = state.leads.filter((l) =>
-    [l.name, l.niche, l.state, l.city, l.phone, l.painPoint, l.rating, l.reviewCount]
+    [l.name, l.niche, l.state, l.city, l.phone, l.email, l.rating, l.reviewCount]
       .join(" ")
       .toLowerCase()
       .includes(q)

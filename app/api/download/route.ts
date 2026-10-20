@@ -3,6 +3,7 @@ import { and, eq, desc } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import { ensureUser, UnauthorizedError } from "@/lib/users";
 import { leadsToBuffer } from "@/src/output.js";
+import { filterContactable } from "@/src/contactable.js";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +17,7 @@ export async function GET(req: NextRequest) {
       orderBy: [desc(schema.searches.createdAt)],
     });
 
-    const leads = (search?.resultBlob as unknown[]) || [];
+    const leads = filterContactable((search?.resultBlob as unknown[]) || []);
     if (!leads.length) {
       return NextResponse.json(
         { error: "No results to download yet. Run a search first." },

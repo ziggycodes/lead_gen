@@ -12,10 +12,10 @@ function LogoIcon({ size = 36 }: { size?: number }) {
     >
       <path
         d="M50,98 C28,80 14,63 14,44 A36,36 0 1,1 86,44 C86,63 72,80 50,98 Z"
-        fill="#141414"
+        fill="#1C1914"
       />
       <circle cx="46" cy="38" r="21" fill="#FAF9F6" />
-      <circle cx="46" cy="38" r="13" fill="#C8F031" />
+      <circle cx="46" cy="38" r="13" fill="#C9A227" />
       <line
         x1="61"
         y1="52"

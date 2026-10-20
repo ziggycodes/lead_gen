@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useRef } from "react";
 import {
   motion,
@@ -8,7 +7,6 @@ import {
   useScroll,
   useTransform,
 } from "framer-motion";
-import { CREDIT_PACKS, formatNaira, FREE_TRIAL_LEADS } from "@/lib/plans";
 import { Reveal } from "./Reveal";
 
 const SAMPLE_ROWS = [
@@ -17,43 +15,35 @@ const SAMPLE_ROWS = [
     niche: "Dental Practice",
     state: "Texas",
     phone: "+1 512-555-0134",
-    pain: "Missed calls during appointments mean lost bookings",
-    pitch: "An AI receptionist that answers and books 24/7",
+    email: "hello@brightsmile.example",
+    status: "Qualified",
   },
   {
     name: "Reyes Plumbing Co.",
     niche: "Plumber",
     state: "Florida",
     phone: "+1 305-555-0177",
-    pain: "No website — relying on word of mouth only",
-    pitch: "Capture emergency calls with instant response",
+    email: "office@reyesplumbing.example",
+    status: "Contacted",
   },
   {
     name: "Luxe Hair Studio",
     niche: "Salon",
     state: "Georgia",
     phone: "+1 404-555-0126",
-    pain: "Phone-only booking limits after-hours clients",
-    pitch: "Automated booking assistant for busy stylists",
+    email: "book@luxehair.example",
+    status: "New",
   },
 ];
 
 const FAQS = [
   {
-    q: "Where does the data come from?",
-    a: "OpenStreetMap — a public, community-maintained map database. We only surface publicly listed business information.",
-  },
-  {
-    q: "What are pain points and pitch angles?",
-    a: "For every lead, LeadScout reads digital-presence signals (no website, phone-only, missing hours) and suggests the likely pain plus an outreach angle.",
+    q: "Can I manage leads after I find them?",
+    a: "Yes. Every lead you find lands in your own CRM, where you can track status, add notes, and see the activity history for each business.",
   },
   {
     q: "What can I export?",
     a: "CSV and Excel (XLSX) — ready for your CRM, spreadsheet, or dialer.",
-  },
-  {
-    q: "Is there a free tier?",
-    a: `Yes. Every account gets ${FREE_TRIAL_LEADS} free leads. No card required. Packs start at ${formatNaira(CREDIT_PACKS.starter.amountKobo)}.`,
   },
   {
     q: "Who is LeadScout for?",
@@ -65,20 +55,23 @@ const STEPS = [
   {
     n: "01",
     bg: "bg-accent",
+    light: false,
     title: "Pick niche & states",
     body: "37 business types across all 50 US states.",
     parallax: 14,
   },
   {
     n: "02",
-    bg: "bg-coral/80",
-    title: "Get leads tagged",
-    body: "Contacts plus pain points and pitch angles.",
+    bg: "bg-ink",
+    light: true,
+    title: "Build your pipeline",
+    body: "Leads land in your CRM with contacts and decision makers.",
     parallax: -12,
   },
   {
     n: "03",
-    bg: "bg-oat",
+    bg: "bg-panel",
+    light: false,
     title: "Export & outreach",
     body: "CSV or Excel — straight into your stack.",
     parallax: 16,
@@ -99,9 +92,9 @@ const CAPABILITIES = [
     chip: "50 states",
   },
   {
-    label: "Outreach",
-    title: "Pain points included",
-    body: "Every lead ships with an angle you can send today.",
+    label: "CRM",
+    title: "Track every lead",
+    body: "Statuses, notes, and activity history for each business you find.",
     chip: null,
   },
   {
@@ -136,7 +129,7 @@ function SampleResults() {
             See what every lead looks like
           </h2>
           <p className="mt-3 text-muted">
-            Contact info plus outreach-ready insights — before you export.
+            Contact info and pipeline status, all in one place.
           </p>
         </Reveal>
 
@@ -174,8 +167,8 @@ function SampleResults() {
                       <th className="px-5 py-3 font-medium">Niche</th>
                       <th className="px-5 py-3 font-medium">State</th>
                       <th className="px-5 py-3 font-medium">Phone</th>
-                      <th className="px-5 py-3 font-medium">Likely pain point</th>
-                      <th className="px-5 py-3 font-medium">Pitch angle</th>
+                      <th className="px-5 py-3 font-medium">Email</th>
+                      <th className="px-5 py-3 font-medium">Status</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -196,10 +189,10 @@ function SampleResults() {
                         <td className="px-5 py-4 text-muted">{r.niche}</td>
                         <td className="px-5 py-4 text-muted">{r.state}</td>
                         <td className="px-5 py-4 text-muted">{r.phone}</td>
-                        <td className="px-5 py-4 text-muted">{r.pain}</td>
+                        <td className="px-5 py-4 text-muted">{r.email}</td>
                         <td className="px-5 py-4 font-medium text-fg">
                           <span className="border-b border-transparent transition-colors group-hover/row:border-accent">
-                            {r.pitch}
+                            {r.status}
                           </span>
                         </td>
                       </motion.tr>
@@ -253,13 +246,13 @@ function HowItWorks() {
                 }}
                 whileHover={reduce ? undefined : { y: -4 }}
               >
-                <span className="font-display text-sm font-semibold text-ink/50">
+                <span className={`font-display text-sm font-semibold ${s.light ? "text-panel/50" : "text-ink/50"}`}>
                   {s.n}
                 </span>
-                <h3 className="mt-5 font-display text-2xl font-semibold text-ink">
+                <h3 className={`mt-5 font-display text-2xl font-semibold ${s.light ? "text-panel" : "text-ink"}`}>
                   {s.title}
                 </h3>
-                <p className="mt-3 text-sm leading-relaxed text-ink/70 sm:text-base">
+                <p className={`mt-3 text-sm leading-relaxed sm:text-base ${s.light ? "text-panel/75" : "text-ink/70"}`}>
                   {s.body}
                 </p>
               </motion.div>
@@ -281,7 +274,7 @@ function Capabilities() {
           Build lists that close
         </h2>
         <p className="mt-3 text-muted">
-          One search. Contacts, context, and a reason to reach out.
+          One search. Contacts land in your CRM, ready to track.
         </p>
       </Reveal>
 
@@ -322,60 +315,6 @@ function Capabilities() {
           </motion.div>
         ))}
       </div>
-    </section>
-  );
-}
-
-function PricingCta() {
-  const reduce = useReducedMotion();
-  const sectionRef = useRef<HTMLElement>(null);
-  const { scrollYProgress } = useScroll({
-    target: sectionRef,
-    offset: ["start end", "end start"],
-  });
-  const blobY = useTransform(
-    scrollYProgress,
-    [0, 1],
-    reduce ? [0, 0] : [30, -30]
-  );
-
-  return (
-    <section ref={sectionRef} className="relative mx-auto max-w-6xl px-6 pb-20 sm:pb-24">
-      <motion.div
-        style={{ y: blobY }}
-        className="pointer-events-none absolute top-1/2 left-1/2 h-64 w-64 -translate-x-1/2 -translate-y-1/2 rounded-full bg-accent/40 blur-3xl sm:h-80 sm:w-80"
-        aria-hidden
-      />
-
-      <Reveal>
-        <motion.div
-          className="relative rounded-[2rem] bg-ink px-8 py-12 text-center sm:px-12 sm:py-16"
-          initial={reduce ? false : { opacity: 0, scale: 0.97 }}
-          whileInView={reduce ? undefined : { opacity: 1, scale: 1 }}
-          viewport={{ once: true, margin: "-10%" }}
-          transition={{ duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
-        >
-          <p className="mb-3 font-display text-xs font-semibold tracking-[0.14em] text-accent uppercase">
-            No card required →
-          </p>
-          <h2 className="font-display text-2xl font-semibold tracking-tight text-white sm:text-3xl">
-            Start free. Pay only when you need more.
-          </h2>
-          <p className="mx-auto mt-4 max-w-lg text-white/70">
-            {FREE_TRIAL_LEADS} free leads on signup. Packs from{" "}
-            <span className="font-semibold text-accent">
-              {formatNaira(CREDIT_PACKS.starter.amountKobo)}
-            </span>{" "}
-            for {CREDIT_PACKS.starter.credits} leads. No subscription.
-          </p>
-          <Link
-            href="/pricing"
-            className="mt-8 inline-block rounded-full bg-accent px-6 py-3 text-sm font-semibold text-ink transition-transform hover:-translate-y-0.5"
-          >
-            View all packs →
-          </Link>
-        </motion.div>
-      </Reveal>
     </section>
   );
 }
@@ -423,7 +362,6 @@ export function LandingBelowFold() {
       <SampleResults />
       <HowItWorks />
       <Capabilities />
-      <PricingCta />
       <Faq />
     </>
   );

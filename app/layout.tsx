@@ -16,7 +16,7 @@ const sora = Sora({
 export const metadata: Metadata = {
   title: "LeadScout — Find leads ready for outreach",
   description:
-    "Pick a niche and state. Get contacts, pain points, and pitch angles you can send today. Start free with 50 leads.",
+    "Pick a niche and state. Get contacts and manage every lead in your own CRM. Start free with 50 leads.",
   icons: {
     icon: "/logo.svg",
     shortcut: "/logo.svg",
@@ -29,16 +29,18 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <ClerkProvider
       appearance={{
         variables: {
-          colorPrimary: "#141414",
-          colorBackground: "#ffffff",
-          colorForeground: "#141414",
-          colorInput: "#ffffff",
-          colorInputForeground: "#141414",
+          colorPrimary: "#1C1914",
+          colorBackground: "#FFFBF2",
+          colorForeground: "#1C1914",
+          colorInput: "#FFFBF2",
+          colorInputForeground: "#1C1914",
         },
       }}
     >
-      <html lang="en" className={`${dmSans.variable} ${sora.variable}`}>
-        <body className="font-sans antialiased">{children}</body>
+      <html lang="en" className={`${dmSans.variable} ${sora.variable}`} suppressHydrationWarning>
+        <body className="font-sans antialiased" suppressHydrationWarning>
+          {children}
+        </body>
       </html>
     </ClerkProvider>
   );

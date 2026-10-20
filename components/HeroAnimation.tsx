@@ -11,8 +11,8 @@ const LEAD = {
   niche: "Dental Practice",
   state: "Texas",
   phone: "+1 512-555-0134",
-  pain: "Missed calls during appointments mean lost bookings",
-  pitch: "An AI receptionist that answers and books 24/7",
+  email: "hello@brightsmile.example",
+  decisionMaker: "Dr. Maya Patel, Owner",
 };
 
 export function HeroAnimation() {
@@ -76,7 +76,7 @@ export function HeroAnimation() {
           <motion.button
             animate={phase === "searching" ? { scale: [1, 0.95, 1] } : {}}
             transition={{ duration: 0.3 }}
-            className="rounded-full bg-accent px-4 py-1.5 text-xs font-semibold text-white"
+            className="rounded-full bg-accent px-4 py-1.5 text-xs font-semibold text-ink"
           >
             {phase === "searching" ? "Searching..." : "Search"}
           </motion.button>
@@ -99,7 +99,7 @@ export function HeroAnimation() {
                     {LEAD.niche} · {LEAD.state}
                   </p>
                 </div>
-                <span className="rounded-full bg-mint/10 px-2.5 py-1 text-xs font-medium text-mint">
+                <span className="rounded-full bg-accent/25 px-2.5 py-1 text-xs font-medium text-ink">
                   New lead
                 </span>
               </div>
@@ -117,15 +117,15 @@ export function HeroAnimation() {
 
               <div className="space-y-2 rounded-xl bg-panel-2 p-3">
                 <div>
-                  <p className="text-xs font-medium text-muted">Likely pain point</p>
-                  <p className="text-sm text-fg">{LEAD.pain}</p>
+                  <p className="text-xs font-medium text-muted">Email</p>
+                  <p className="text-sm text-fg">{LEAD.email}</p>
                 </div>
                 <div>
                   <p className="inline-flex items-center gap-1 text-xs font-medium text-accent">
                     <Sparkles className="h-3.5 w-3.5" />
-                    Pitch angle
+                    Decision maker
                   </p>
-                  <p className="text-sm font-medium text-accent">{LEAD.pitch}</p>
+                  <p className="text-sm font-medium text-accent">{LEAD.decisionMaker}</p>
                 </div>
               </div>
             </motion.div>

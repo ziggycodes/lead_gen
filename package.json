@@ -1,7 +1,7 @@
 {
   "name": "leadscout",
   "version": "1.0.0",
-  "description": "LeadScout - find US business leads with AI-ready pitch angles. Hosted SaaS + CLI, powered by OpenStreetMap.",
+  "description": "LeadScout - find US business leads and manage them in a lightweight CRM. Hosted SaaS + CLI, powered by OpenStreetMap.",
   "type": "module",
   "bin": {
     "leadscout": "src/cli.js"
@@ -14,7 +14,8 @@
     "web:legacy": "node server.js",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "db:push": "drizzle-kit push"
+    "db:push": "drizzle-kit push",
+    "test": "node --test src/contactable.test.js"
   },
   "engines": {
     "node": ">=18"

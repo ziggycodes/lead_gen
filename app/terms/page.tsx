@@ -15,9 +15,8 @@ export default function TermsPage() {
           <section>
             <h2 className="mb-2 font-semibold text-fg">1. The service</h2>
             <p>
-              LeadScout surfaces publicly available business information from OpenStreetMap and
-              adds heuristic suggestions (pain points, pitch angles) to help you plan outreach.
-              Data accuracy is not guaranteed - listings are community-maintained.
+              LeadScout surfaces publicly available business information and lets you
+              organize those leads in a per-account CRM. Data accuracy is not guaranteed.
             </p>
           </section>
           <section>

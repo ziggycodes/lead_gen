@@ -30,8 +30,7 @@ export default function PrivacyPage() {
           <section>
             <h2 className="mb-2 font-semibold text-fg">Business data in results</h2>
             <p>
-              Lead results contain publicly listed business information sourced from
-              OpenStreetMap under its open license.
+              Lead results contain publicly listed business information.
             </p>
           </section>
           <section>

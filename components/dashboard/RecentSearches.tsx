@@ -5,8 +5,8 @@ import { Clock, LoaderCircle, RefreshCw } from "lucide-react";
 import type { SearchHistoryItem } from "./types";
 
 const STATUS_STYLES: Record<string, string> = {
-  completed: "bg-mint/10 text-mint",
-  running: "bg-accent/10 text-accent",
+  completed: "bg-ink/5 text-fg",
+  running: "bg-accent/20 text-ink",
   failed: "bg-danger/10 text-danger",
   cancelled: "bg-ink/5 text-muted",
 };

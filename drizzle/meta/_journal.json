@@ -15,6 +15,13 @@
       "when": 1783592322278,
       "tag": "0001_powerful_otto_octavius",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792153327475,
+      "tag": "0002_crm_leads",
+      "breakpoints": true
     }
   ]
 }

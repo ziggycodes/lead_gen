@@ -1,6 +1,6 @@
 // Pricing for the Nigerian market. Amounts are in kobo (1 NGN = 100 kobo).
-// All tiers use the free Basic engine (OSM + heuristic pain points), so leads
-// cost ~nothing to serve. LLM/SerpApi enrichment stays off for web users.
+// All tiers use the free Basic engine (OSM + website contact scraping), so leads
+// cost ~nothing to serve. SerpApi ratings enrichment stays off for web users.
 
 // Lead generation itself is unlimited - credit packs don't gate searches.
 export const FREE_TRIAL_LEADS = 50;

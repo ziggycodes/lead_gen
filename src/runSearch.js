@@ -1,15 +1,51 @@
 // Shared lead-search pipeline used by BOTH the CLI (cli.js) and the web server
 // (server.js). Resolves inputs, queries Overpass per state/niche, parses, dedupes,
-// tags pain points, and (optionally) enriches. Emits progress via callbacks.
+// and (optionally) enriches. Emits progress via callbacks.
 
 import pLimit from "p-limit";
 import { getNiche } from "./niches.js";
 import { listStateIsoCodes, resolveStateInput, stateNameFromIso } from "./usStates.js";
 import { buildQuery, runQuery, sleep, capForElements } from "./overpass.js";
 import { elementToLead, dedupe } from "./parse.js";
-import { inferPainPoint } from "./painPoints.js";
 import { enrichLead, enrichmentStatus, enrichConcurrency, resetEnrichWarnings } from "./enrich.js";
 import { scrapeContacts } from "./contactScrape.js";
+import { isContactable } from "./contactable.js";
+
+// OSM hits are often name-only. Over-fetch so we can still fill `limit` after
+// dropping businesses with no phone and no email.
+const CONTACTABLE_OVERFETCH = 8;
+const ADMISSION_SCRAPE_MULT = 4;
+const ADMISSION_SCRAPE_CAP = 80;
+
+async function scrapeWebsites(targets, { onLog, onContactProgress, isCancelled }) {
+  if (!targets.length) return;
+  onLog(`Scraping ${targets.length} websites for contact info...`);
+  const limiter = pLimit(8);
+  let done = 0;
+  await Promise.all(
+    targets.map((lead) =>
+      limiter(async () => {
+        if (isCancelled()) return;
+        try {
+          const { emails, linkedInProfiles } = await scrapeContacts(lead.website);
+          if (emails.length) {
+            lead.email = emails[0];
+            lead.emailSource = "website";
+            lead.emailsFound = emails;
+          }
+          if (linkedInProfiles.length) {
+            lead.websiteLinkedIn = linkedInProfiles[0];
+          }
+        } catch {
+          /* never let one bad site fail the run */
+        }
+        done++;
+        onContactProgress({ done, total: targets.length });
+      })
+    )
+  );
+  onLog(`Contact scrape complete (${done}/${targets.length} sites).`);
+}
 
 // Resolve a comma-separated niche string into niche config objects.
 export function resolveNiches(input, onLog = () => {}) {
@@ -50,14 +86,12 @@ export function summarize(leads) {
   let withWebsite = 0;
   let withEmail = 0;
   let withRating = 0;
-  let llmEnriched = 0;
   for (const l of leads) {
     byNiche[l.niche] = (byNiche[l.niche] || 0) + 1;
     if (l.phone) withPhone++;
     if (l.website) withWebsite++;
     if (l.email) withEmail++;
     if (l.rating !== undefined && l.rating !== "") withRating++;
-    if (l.llmEnriched) llmEnriched++;
   }
   return {
     total: leads.length,
@@ -65,7 +99,6 @@ export function summarize(leads) {
     withWebsite,
     withEmail,
     withRating,
-    llmEnriched,
     tier: enrichmentStatus().tier,
     byNiche,
   };
@@ -111,27 +144,50 @@ export async function runSearch(opts, callbacks = {}) {
         // Ask Overpass for a bounded slice rather than every POI in the state:
         // unnamed and duplicate entries get dropped, so over-fetch what's left
         // to collect. Uncapped statewide queries routinely time out upstream.
+        const remaining = Math.max(1, limit - leads.length);
         const query = buildQuery(stateIso, niche, {
-          maxElements: capForElements((limit - leads.length) * 3),
+          maxElements: capForElements(remaining * CONTACTABLE_OVERFETCH),
         });
         const elements = await runQuery(query, { onLog, cache: opts.cache || null, isCancelled });
         const rawLeads = elements
           .map((el) => elementToLead(el, { niche: niche.key, nicheLabel: niche.label, stateIso }))
           .filter(Boolean);
         const fresh = dedupe(rawLeads, seen);
-        const accepted = [];
+        const ready = [];
+        const scrapeForEmail = [];
+        const scrapeForAdmission = [];
         for (const lead of fresh) {
-          const { painPoint, pitchAngle, signals } = inferPainPoint(lead, niche.category);
-          lead.painPoint = painPoint;
-          lead.pitchAngle = pitchAngle;
-          lead.signals = signals;
-          leads.push(lead);
-          accepted.push(lead);
-          added++;
-          if (leads.length >= limit) break;
+          if (isContactable(lead)) {
+            if (leads.length >= limit) break;
+            leads.push(lead);
+            ready.push(lead);
+            if (opts.scrapeContacts && lead.website && !lead.email) scrapeForEmail.push(lead);
+          } else if (lead.website) {
+            scrapeForAdmission.push(lead);
+          }
         }
-        if (accepted.length) onLeads(accepted);
-        onLog(`[${stateName} / ${niche.label}] +${added} new (total ${leads.length}/${limit})`);
+        if (ready.length) onLeads(ready);
+
+        if (opts.scrapeContacts && scrapeForEmail.length && !isCancelled()) {
+          await scrapeWebsites(scrapeForEmail, { onLog, onContactProgress, isCancelled });
+        }
+
+        const admitted = [];
+        if (opts.scrapeContacts && leads.length < limit && scrapeForAdmission.length && !isCancelled()) {
+          const slots = (limit - leads.length) * ADMISSION_SCRAPE_MULT;
+          const batch = scrapeForAdmission.slice(0, Math.min(slots, ADMISSION_SCRAPE_CAP));
+          await scrapeWebsites(batch, { onLog, onContactProgress, isCancelled });
+          for (const lead of batch) {
+            if (leads.length >= limit) break;
+            if (!isContactable(lead)) continue;
+            leads.push(lead);
+            admitted.push(lead);
+          }
+          if (admitted.length) onLeads(admitted);
+        }
+
+        added = ready.length + admitted.length;
+        onLog(`[${stateName} / ${niche.label}] +${added} contactable (total ${leads.length}/${limit})`);
       } catch (err) {
         onLog(`[${stateName} / ${niche.label}] failed: ${err.message}`);
       }
@@ -149,15 +205,21 @@ export async function runSearch(opts, callbacks = {}) {
     }
   }
 
+  const dropped = leads.filter((l) => !isContactable(l)).length;
+  if (dropped) {
+    const kept = leads.filter(isContactable);
+    leads.length = 0;
+    leads.push(...kept);
+    onLog(`Dropped ${dropped} leads with no phone or email.`);
+  }
+
   // Auto-enrichment when API keys are present (unless --no-enrich).
   const status = enrichmentStatus();
   const shouldEnrich = !opts.noEnrich && status.tier !== "basic";
 
   if (shouldEnrich && leads.length) {
     resetEnrichWarnings();
-    onLog(
-      `Enriching ${leads.length} leads (tier=${status.tier}, serpapi=${status.serpapi.connected}, llm=${status.llm.connected})...`
-    );
+    onLog(`Enriching ${leads.length} leads with Google ratings (tier=${status.tier})...`);
     const limiter = pLimit(enrichConcurrency());
     let done = 0;
     await Promise.all(
@@ -171,41 +233,6 @@ export async function runSearch(opts, callbacks = {}) {
       )
     );
     onLog(`Enrichment complete (${done}/${leads.length} processed).`);
-  }
-
-  // Contact scraping (free). Runs independently of enrichment: pull emails and
-  // LinkedIn links off each lead's own website. Only leads that have a website
-  // but no email are worth the fetch.
-  if (opts.scrapeContacts && leads.length) {
-    const targets = leads.filter((l) => l.website && !l.email);
-    if (targets.length) {
-      onLog(`Scraping ${targets.length} websites for contact info...`);
-      const limiter = pLimit(8);
-      let done = 0;
-      await Promise.all(
-        targets.map((lead) =>
-          limiter(async () => {
-            if (isCancelled()) return;
-            try {
-              const { emails, linkedInProfiles } = await scrapeContacts(lead.website);
-              if (emails.length) {
-                lead.email = emails[0];
-                lead.emailSource = "website";
-                lead.emailsFound = emails;
-              }
-              if (linkedInProfiles.length) {
-                lead.websiteLinkedIn = linkedInProfiles[0];
-              }
-            } catch {
-              /* never let one bad site fail the run */
-            }
-            done++;
-            onContactProgress({ done, total: targets.length });
-          })
-        )
-      );
-      onLog(`Contact scrape complete (${done}/${targets.length} sites).`);
-    }
   }
 
   // Decision-maker lookup (SerpApi). The lookup function is injected by the

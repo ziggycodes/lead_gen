@@ -21,10 +21,6 @@ const COLUMNS = [
   { key: "decisionMakerTitle", header: "Decision Maker Title", width: 26 },
   { key: "decisionMakerLinkedIn", header: "Decision Maker LinkedIn", width: 40 },
   { key: "decisionMakerConfidence", header: "DM Confidence", width: 14 },
-  { key: "painPoint", header: "Likely Pain Point", width: 60 },
-  { key: "pitchAngle", header: "Suggested Pitch Angle", width: 50 },
-  { key: "signals", header: "Signals", width: 36 },
-  { key: "osmLink", header: "Source (OSM)", width: 40 },
 ];
 
 // Flatten the top decision-maker match onto derived columns.
@@ -38,9 +34,9 @@ const DERIVED = {
   },
 };
 
-function toRow(lead) {
+function toRow(lead, columns = COLUMNS) {
   const row = {};
-  for (const col of COLUMNS) {
+  for (const col of columns) {
     row[col.key] = DERIVED[col.key] ? DERIVED[col.key](lead) : lead[col.key] ?? "";
   }
   return row;
@@ -50,13 +46,13 @@ export async function writeCsv(leads, path) {
   await writeFile(path, csvString(leads), "utf8"); // BOM included for Excel compatibility
 }
 
-function buildWorkbook(leads) {
+function buildWorkbook(leads, columns = COLUMNS) {
   const wb = new ExcelJS.Workbook();
   wb.creator = "leadgen-cli";
   wb.created = new Date();
   const ws = wb.addWorksheet("Leads");
 
-  ws.columns = COLUMNS.map((c) => ({ header: c.header, key: c.key, width: c.width }));
+  ws.columns = columns.map((c) => ({ header: c.header, key: c.key, width: c.width }));
   ws.getRow(1).fill = {
     type: "pattern",
     pattern: "solid",
@@ -66,11 +62,11 @@ function buildWorkbook(leads) {
   ws.views = [{ state: "frozen", ySplit: 1 }];
 
   for (const lead of leads) {
-    ws.addRow(toRow(lead));
+    ws.addRow(toRow(lead, columns));
   }
   ws.autoFilter = {
     from: { row: 1, column: 1 },
-    to: { row: 1, column: COLUMNS.length },
+    to: { row: 1, column: columns.length },
   };
   return wb;
 }
@@ -81,20 +77,22 @@ export async function writeXlsx(leads, path) {
 }
 
 // Build CSV text (with Excel-friendly BOM) for the given leads.
-export function csvString(leads) {
-  const records = leads.map(toRow);
+export function csvString(leads, columns = COLUMNS) {
+  const records = leads.map((l) => toRow(l, columns));
   const csv = stringify(records, {
     header: true,
-    columns: COLUMNS.map((c) => ({ key: c.key, header: c.header })),
+    columns: columns.map((c) => ({ key: c.key, header: c.header })),
   });
   return "\uFEFF" + csv;
 }
 
 // Return a downloadable buffer + metadata for the given format (no disk write).
-export async function leadsToBuffer(leads, format) {
+// `extraColumns` are prepended after the business name (used for CRM fields).
+export async function leadsToBuffer(leads, format, extraColumns = []) {
   const fmt = (format || "csv").toLowerCase();
+  const columns = extraColumns.length ? [COLUMNS[0], ...extraColumns, ...COLUMNS.slice(1)] : COLUMNS;
   if (fmt === "xlsx") {
-    const wb = buildWorkbook(leads);
+    const wb = buildWorkbook(leads, columns);
     const buffer = await wb.xlsx.writeBuffer();
     return {
       buffer: Buffer.from(buffer),
@@ -103,7 +101,7 @@ export async function leadsToBuffer(leads, format) {
     };
   }
   return {
-    buffer: Buffer.from(csvString(leads), "utf8"),
+    buffer: Buffer.from(csvString(leads, columns), "utf8"),
     contentType: "text/csv; charset=utf-8",
     filename: "leads.csv",
   };

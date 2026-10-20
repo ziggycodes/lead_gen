@@ -1,6 +1,5 @@
 #!/usr/bin/env node
-// Free Lead-Gen CLI: collect US business leads from OpenStreetMap, tag a likely
-// pain point for AI voice-agent / automation outreach, and export to CSV/XLSX.
+// Free Lead-Gen CLI: collect US business leads and export to CSV/XLSX.
 // The actual search pipeline lives in runSearch.js (shared with the web server).
 
 import "./loadEnv.js";
@@ -13,14 +12,14 @@ const program = new Command();
 
 program
   .name("leadgen")
-  .description("Collect US business leads (free, via OpenStreetMap) with AI voice-agent pain points.")
+  .description("Collect US business leads and export them to CSV or Excel.")
   .option("-n, --niches <list>", "comma-separated niche keys (see --list-niches)", "dentist,salon,plumber,restaurant")
   .option("-s, --states <list>", 'comma-separated states (ISO "US-CA", abbr "CA", name, or "US" for all)', "US")
   .option("-l, --limit <number>", "max total leads to collect", "2000")
   .option("-o, --out <path>", "output file path", "leads.xlsx")
   .option("-f, --format <fmt>", "output format: csv or xlsx (inferred from --out if omitted)")
   .option("--delay <ms>", "delay between Overpass queries (be polite)", "1200")
-  .option("--no-enrich", "skip auto LLM/ratings enrichment even if API keys are set", false)
+  .option("--no-enrich", "skip auto ratings enrichment even if SERPAPI_KEY is set", false)
   .option("--list-niches", "print available niche keys and exit", false);
 
 program.parse(process.argv);
@@ -53,6 +52,7 @@ async function main() {
       limit: opts.limit,
       delayMs: parseInt(opts.delay, 10) || 0,
       noEnrich: opts.noEnrich,
+      scrapeContacts: true,
     },
     { onLog: log }
   );
@@ -65,9 +65,7 @@ async function main() {
   const fmt = await writeLeads(leads, opts.out, opts.format);
   log(`\nDone. Wrote ${leads.length} leads to ${opts.out} (${fmt}).`);
   log(`Mode: ${summary.tier} | Contactable: ${summary.withPhone} phone, ${summary.withWebsite} website.`);
-  if (summary.withRating) log(`Ratings: ${summary.withRating} leads with Google ratings.`);
-  if (summary.llmEnriched) log(`LLM: ${summary.llmEnriched} leads enriched.`);
-  log("By niche: " + Object.entries(summary.byNiche).map(([k, v]) => `${k}=${v}`).join(", "));
+  if (summary.withRating) log(`Ratings: ${summary.withRating} leads with Google ratings.`);  log("By niche: " + Object.entries(summary.byNiche).map(([k, v]) => `${k}=${v}`).join(", "));
 }
 
 main().catch((err) => {

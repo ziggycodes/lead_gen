@@ -29,12 +29,6 @@ export function MarketingHeader({
       >
         <Brand />
         <nav className="flex items-center gap-3 text-sm sm:gap-5">
-          <Link
-            href="/pricing"
-            className="hidden text-muted transition-colors hover:text-fg sm:inline"
-          >
-            Pricing
-          </Link>
           {isSignedIn ? (
             <Link
               href="/app"
