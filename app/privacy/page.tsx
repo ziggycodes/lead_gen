@@ -23,7 +23,7 @@ export default function PrivacyPage() {
           <section>
             <h2 className="mb-2 font-semibold text-fg">What we don&apos;t do</h2>
             <p>
-              We don&apos;t sell your data, and we don&apos;t share your searches or exports
+              We don&apos;t sell your data, and we don&apos;t share your searches or leads
               with anyone.
             </p>
           </section>

@@ -4,9 +4,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CrmLead, SearchHistoryItem, Usage } from "./types";
 import { fetchLeads } from "./crmApi";
 import { CrmView } from "./CrmView";
+import { ConversationsView } from "./ConversationsView";
 import { LeadDrawer } from "./LeadDrawer";
+import { MailboxesView } from "./MailboxesView";
 import { AppShell } from "./AppShell";
-import { Sidebar } from "./Sidebar";
+import { Sidebar, type WorkbenchView } from "./Sidebar";
 import { FindSheet, searchSummary, type FindPrefill, type SearchArrival } from "./FindSheet";
 import { EMPTY_FILTERS, type LeadFilters } from "./leadFilters";
 import { isFollowUpDue } from "./format";
@@ -25,7 +27,8 @@ export function Dashboard() {
   const [prefillKey, setPrefillKey] = useState(0);
   const [historyKey, setHistoryKey] = useState(0);
   const [arrival, setArrival] = useState<SearchArrival | null>(null);
-  const [view, setView] = useState<"table" | "pipeline">("table");
+  const [view, setView] = useState<WorkbenchView>("table");
+  const [conversationFocus, setConversationFocus] = useState<string | null>(null);
 
   const refreshUsage = useCallback(async () => {
     try {
@@ -102,11 +105,12 @@ export function Dashboard() {
 
   const patchFilters = useCallback((next: LeadFilters) => setFilters(next), []);
 
-  const setWorkbenchView = useCallback((next: "table" | "pipeline") => {
+  const setWorkbenchView = useCallback((next: WorkbenchView) => {
     setView(next);
     if (next === "pipeline") {
       setFilters((current) => (current.status === "all" ? current : { ...current, status: "all" }));
     }
+    if (next !== "conversations") setConversationFocus(null);
   }, []);
 
   return (
@@ -148,6 +152,11 @@ export function Dashboard() {
                 onClose={() => setOpenLeadId(null)}
                 onLeadChange={handleLeadChange}
                 onLeadDeleted={(id) => removeLeads([id])}
+                onOpenConversation={(email) => {
+                  setConversationFocus(email);
+                  setView("conversations");
+                }}
+                onOpenMailboxes={() => setWorkbenchView("mailboxes")}
               />
             </div>
           </>
@@ -175,20 +184,26 @@ export function Dashboard() {
             </button>
           </div>
         )}
-        <CrmView
-          leads={leads}
-          loading={loading}
-          loadError={loadError}
-          truncated={truncated}
-          filters={filters}
-          onFiltersChange={patchFilters}
-          onOpenLead={setOpenLeadId}
-          onLeadsUpdated={mergeLeads}
-          onLeadsDeleted={removeLeads}
-          onFindLeads={openFind}
-          view={view}
-          onViewChange={setWorkbenchView}
-        />
+        {view === "mailboxes" ? (
+          <MailboxesView />
+        ) : view === "conversations" ? (
+          <ConversationsView focusEmail={conversationFocus} onOpenLead={setOpenLeadId} />
+        ) : (
+          <CrmView
+            leads={leads}
+            loading={loading}
+            loadError={loadError}
+            truncated={truncated}
+            filters={filters}
+            onFiltersChange={patchFilters}
+            onOpenLead={setOpenLeadId}
+            onLeadsUpdated={mergeLeads}
+            onLeadsDeleted={removeLeads}
+            onFindLeads={openFind}
+            view={view}
+            onViewChange={setWorkbenchView}
+          />
+        )}
       </AppShell>
       <FindSheet
         open={findOpen}

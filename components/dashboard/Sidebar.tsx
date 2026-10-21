@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { CalendarClock, Columns3, Search, Star, Users } from "lucide-react";
+import { CalendarClock, Columns3, Inbox, Mail, Search, Star, Users } from "lucide-react";
 import type { SearchHistoryItem } from "./types";
 import type { LeadFilters } from "./leadFilters";
 import { EMPTY_FILTERS } from "./leadFilters";
@@ -13,6 +13,8 @@ function searchLabel(s: SearchHistoryItem): string {
     niches.length <= 2 ? niches.join(", ") : `${niches.slice(0, 2).join(", ")} +${niches.length - 2}`;
   return `${nichePart || "Search"} · ${s.params?.states || "US"}`;
 }
+
+export type WorkbenchView = "table" | "pipeline" | "mailboxes" | "conversations";
 
 export function Sidebar({
   filters,
@@ -33,8 +35,8 @@ export function Sidebar({
   onFind: () => void;
   onRerun: (search: SearchHistoryItem) => void;
   onNavigate?: () => void;
-  view: "table" | "pipeline";
-  onView: (view: "table" | "pipeline") => void;
+  view: WorkbenchView;
+  onView: (view: WorkbenchView) => void;
   className?: string;
 }) {
   const [searches, setSearches] = useState<SearchHistoryItem[]>([]);
@@ -47,6 +49,7 @@ export function Sidebar({
   }, [historyKey]);
 
   const go = (next: LeadFilters) => {
+    if (view === "mailboxes" || view === "conversations") onView("table");
     onFilters(next);
     onNavigate?.();
   };
@@ -124,6 +127,28 @@ export function Sidebar({
         </div>
 
         <div className="space-y-0.5">
+          <p className="px-2 pb-1 text-xs font-medium text-muted">Mail</p>
+          <RailButton
+            active={view === "mailboxes"}
+            onClick={() => {
+              onView("mailboxes");
+              onNavigate?.();
+            }}
+            icon={<Mail className="h-3.5 w-3.5" />}
+            label="Mailboxes"
+          />
+          <RailButton
+            active={view === "conversations"}
+            onClick={() => {
+              onView("conversations");
+              onNavigate?.();
+            }}
+            icon={<Inbox className="h-3.5 w-3.5" />}
+            label="Conversations"
+          />
+        </div>
+
+        <div className="space-y-0.5">
           <p className="px-2 pb-1 text-xs font-medium text-muted">Searches</p>
           {searches.length === 0 ? (
             <p className="px-2 text-xs text-muted">Past searches show up here.</p>
@@ -183,7 +208,7 @@ function RailButton({
   onClick: () => void;
   icon?: ReactNode;
   label: string;
-  count: number;
+  count?: number;
   hot?: boolean;
 }) {
   return (
@@ -195,9 +220,11 @@ function RailButton({
     >
       {icon}
       <span className="min-w-0 flex-1 truncate">{label}</span>
-      <span className={`text-xs tabular-nums ${active ? "text-white/70" : hot ? "font-semibold text-accent" : "text-muted"}`}>
-        {count}
-      </span>
+      {count != null && (
+        <span className={`text-xs tabular-nums ${active ? "text-white/70" : hot ? "font-semibold text-accent" : "text-muted"}`}>
+          {count}
+        </span>
+      )}
     </button>
   );
 }

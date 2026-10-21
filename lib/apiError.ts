@@ -1,9 +1,12 @@
 import { NextResponse } from "next/server";
-import { UnauthorizedError } from "./users";
+import { ForbiddenError, UnauthorizedError } from "./users";
 
 export function errorResponse(err: unknown) {
   if (err instanceof UnauthorizedError) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+  }
+  if (err instanceof ForbiddenError) {
+    return NextResponse.json({ error: err.message }, { status: 403 });
   }
   return NextResponse.json({ error: (err as Error).message }, { status: 500 });
 }

@@ -1,7 +1,6 @@
 import { and, asc, eq, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
 import { db, schema } from "./db";
 import { leadKey, type LeadLike } from "./leadKey";
-import { STATUS_LABELS, isLeadStatus } from "./crm";
 import { isContactable } from "@/src/contactable.js";
 import { dedupeKeys } from "@/src/parse.js";
 
@@ -459,32 +458,3 @@ export function serializeLead(row: LeadRow): CrmLead {
     createdAt: row.createdAt.toISOString(),
   };
 }
-
-// Shape a CRM row for `leadsToBuffer`, which expects scraper-style lead objects.
-export function toExportLead(row: LeadRow): Record<string, unknown> {
-  const extra = (row.extra as Record<string, unknown> | null) || {};
-  return {
-    ...extra,
-    name: row.name,
-    niche: row.niche,
-    state: row.state,
-    city: row.city,
-    address: row.address,
-    phone: row.phone,
-    email: row.email,
-    website: row.website,
-    osmLink: row.osmLink,
-    decisionMakers: row.decisionMakers,
-    status: isLeadStatus(row.status) ? STATUS_LABELS[row.status] : row.status,
-    saved: row.saved ? "Yes" : "",
-    contactName: row.contactName,
-    followUpAt: row.followUpAt ? row.followUpAt.toISOString().slice(0, 10) : "",
-  };
-}
-
-export const CRM_EXPORT_COLUMNS = [
-  { key: "status", header: "Status", width: 14 },
-  { key: "saved", header: "Saved", width: 8 },
-  { key: "contactName", header: "Contact Name", width: 24 },
-  { key: "followUpAt", header: "Follow Up", width: 12 },
-];

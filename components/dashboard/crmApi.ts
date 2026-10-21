@@ -87,25 +87,3 @@ export function deleteNote(id: number, noteId: number) {
 export function lookupDecisionMakers(id: number) {
   return request<{ lead: CrmLead }>(`/api/leads/${id}/decision-makers`, { method: "POST" });
 }
-
-export async function exportLeads(format: "csv" | "xlsx", ids?: number[]) {
-  const res = await fetch("/api/leads/export", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(ids ? { format, ids } : { format }),
-  });
-  if (!res.ok) {
-    const json = await res.json().catch(() => ({}));
-    throw new Error(json.error || `Export failed (${res.status})`);
-  }
-  const blob = await res.blob();
-  const match = /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") || "");
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = match?.[1] || `leads.${format}`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-}

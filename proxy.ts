@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 
 const isProtectedRoute = createRouteMatcher([
   "/app(.*)",
+  "/admin(.*)",
 ]);
 
 // Paths exempt from the country gate.

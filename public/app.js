@@ -112,8 +112,6 @@ function startSearch() {
   $("#stats").innerHTML = "";
   $("#progress-fill").style.width = "0%";
   $("#progress-text").textContent = "Starting...";
-  $("#dl-csv").disabled = true;
-  $("#dl-xlsx").disabled = true;
   setRunning(true);
 
   const params = new URLSearchParams({ niches, states, limit, delay });
@@ -193,8 +191,6 @@ function renderResults(leads, summary) {
   stats.innerHTML = html;
 
   $("#filter").classList.toggle("hidden", leads.length === 0);
-  $("#dl-csv").disabled = leads.length === 0;
-  $("#dl-xlsx").disabled = leads.length === 0;
 
   renderRows(leads);
 }
@@ -237,8 +233,5 @@ $("#filter").addEventListener("input", (e) => {
   );
   renderRows(filtered);
 });
-
-$("#dl-csv").addEventListener("click", () => (window.location.href = "/api/download?format=csv"));
-$("#dl-xlsx").addEventListener("click", () => (window.location.href = "/api/download?format=xlsx"));
 
 init().catch((err) => log("Init failed: " + err.message));

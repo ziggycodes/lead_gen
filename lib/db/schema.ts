@@ -128,7 +128,7 @@ export const leadNotes = pgTable(
 );
 
 // Timeline events: imported, status_changed, saved, unsaved, note_added,
-// updated, follow_up_set, decision_makers_found.
+// updated, follow_up_set, decision_makers_found, email_sent, email_received.
 export const leadActivities = pgTable(
   "lead_activities",
   {
@@ -163,6 +163,72 @@ export const payments = pgTable(
   },
   (t) => [uniqueIndex("payments_reference_idx").on(t.reference)]
 );
+
+// A mailbox the account connected so LeadScout can send and read mail.
+// `secretCiphertext` is the app password, encrypted. It is never returned to the browser.
+export const emailAccounts = pgTable(
+  "email_accounts",
+  {
+    id: serial("id").primaryKey(),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    provider: text("provider").notNull(), // gmail | business
+    address: text("address").notNull(),
+    fromName: text("from_name").notNull().default(""),
+    smtpHost: text("smtp_host").notNull(),
+    smtpPort: integer("smtp_port").notNull(),
+    imapHost: text("imap_host").notNull(),
+    imapPort: integer("imap_port").notNull(),
+    secretCiphertext: text("secret_ciphertext").notNull(),
+    status: text("status").notNull().default("error"), // connected | error
+    lastError: text("last_error"),
+    lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
+    isDefault: boolean("is_default").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("email_accounts_user_address_idx").on(t.userId, t.address),
+    index("email_accounts_user_idx").on(t.userId),
+  ]
+);
+
+// One row per message on a connected mailbox. A conversation is every row
+// that shares `counterparty` (the other person's address).
+export const emailMessages = pgTable(
+  "email_messages",
+  {
+    id: serial("id").primaryKey(),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    accountId: integer("account_id")
+      .notNull()
+      .references(() => emailAccounts.id, { onDelete: "cascade" }),
+    leadId: integer("lead_id").references(() => leads.id, { onDelete: "set null" }),
+    direction: text("direction").notNull(), // inbound | outbound
+    messageId: text("message_id").notNull(),
+    counterparty: text("counterparty").notNull(),
+    fromAddress: text("from_address").notNull().default(""),
+    toAddress: text("to_address").notNull().default(""),
+    subject: text("subject").notNull().default(""),
+    bodyText: text("body_text").notNull().default(""),
+    sentAt: timestamp("sent_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("email_messages_account_msgid_idx").on(t.accountId, t.messageId),
+    index("email_messages_user_party_idx").on(t.userId, t.counterparty),
+    index("email_messages_account_sent_idx").on(t.accountId, t.sentAt),
+  ]
+);
+
+// Emails allowed to sign in, besides the admin addresses in ADMIN_EMAILS.
+export const allowedEmails = pgTable("allowed_emails", {
+  email: text("email").primaryKey(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
 
 // Cached Overpass responses keyed by a hash of the query, shared across users.
 export const overpassCache = pgTable("overpass_cache", {

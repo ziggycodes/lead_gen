@@ -9,8 +9,6 @@ import {
   Columns3,
   Copy,
   Check,
-  FileSpreadsheet,
-  FileText,
   LayoutList,
   ListFilter,
   LoaderCircle,
@@ -24,7 +22,7 @@ import {
 } from "lucide-react";
 import { LEAD_STATUSES, STATUS_LABELS, STATUS_STYLES, isLeadStatus } from "@/lib/crm";
 import type { CrmLead, SearchHistoryItem } from "./types";
-import { bulkDeleteLeads, bulkUpdateLeads, exportLeads } from "./crmApi";
+import { bulkDeleteLeads, bulkUpdateLeads } from "./crmApi";
 import { formatDate, isFollowUpDue, location, timeAgo } from "./format";
 import { EMPTY_FILTERS, filterLeads, filtersActive, type LeadFilters } from "./leadFilters";
 import { leadToText } from "./LeadDrawer";
@@ -199,8 +197,6 @@ export function CrmView({
       setConfirmDelete(false);
     });
 
-  const exportRows = (format: "csv" | "xlsx", ids?: number[]) => act(() => exportLeads(format, ids));
-
   const copyLead = async (lead: CrmLead) => {
     try {
       await navigator.clipboard.writeText(leadToText(lead));
@@ -259,22 +255,6 @@ export function CrmView({
                 Pipeline
               </button>
             </div>
-            <button
-              onClick={() => exportRows("csv", active ? filtered.map((l) => l.id) : undefined)}
-              disabled={busy || filtered.length === 0}
-              className="flex items-center gap-1.5 rounded-full border border-line px-3 py-1.5 text-sm font-medium text-muted hover:text-fg disabled:pointer-events-none disabled:opacity-30"
-            >
-              <FileText className="h-4 w-4" />
-              CSV
-            </button>
-            <button
-              onClick={() => exportRows("xlsx", active ? filtered.map((l) => l.id) : undefined)}
-              disabled={busy || filtered.length === 0}
-              className="flex items-center gap-1.5 rounded-full border border-line px-3 py-1.5 text-sm font-medium text-muted hover:text-fg disabled:pointer-events-none disabled:opacity-30"
-            >
-              <FileSpreadsheet className="h-4 w-4" />
-              Excel
-            </button>
             <button
               onClick={onFindLeads}
               className="flex items-center gap-1.5 rounded-full bg-accent px-4 py-1.5 text-sm font-semibold text-ink"
@@ -375,14 +355,6 @@ export function CrmView({
             </BulkButton>
             <BulkButton disabled={busy} onClick={() => updateMany(selectedIds, { saved: false })}>
               Unsave
-            </BulkButton>
-            <BulkButton disabled={busy} onClick={() => exportRows("csv", selectedIds)}>
-              <FileText className="h-3.5 w-3.5" />
-              CSV
-            </BulkButton>
-            <BulkButton disabled={busy} onClick={() => exportRows("xlsx", selectedIds)}>
-              <FileSpreadsheet className="h-3.5 w-3.5" />
-              Excel
             </BulkButton>
             <div className="ml-auto flex items-center gap-2">
               {confirmDelete ? (

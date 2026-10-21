@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomBytes } from "node:crypto";
 import { db, schema } from "@/lib/db";
-import { ensureUser, UnauthorizedError } from "@/lib/users";
+import { ensureUser } from "@/lib/users";
+import { errorResponse } from "@/lib/apiError";
 import { initializeTransaction } from "@/lib/paystack";
 import { CREDIT_PACKS } from "@/lib/plans";
 
@@ -44,9 +45,6 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ authorizationUrl, reference });
   } catch (err) {
-    if (err instanceof UnauthorizedError) {
-      return NextResponse.json({ error: "Not signed in" }, { status: 401 });
-    }
-    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
+    return errorResponse(err);
   }
 }

@@ -10,7 +10,6 @@ import { dirname, join } from "node:path";
 import { NICHES, listNicheKeys } from "./src/niches.js";
 import { US_STATES, listStateIsoCodes } from "./src/usStates.js";
 import { runSearch } from "./src/runSearch.js";
-import { leadsToBuffer } from "./src/output.js";
 import { publicConfig } from "./src/enrich.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -19,10 +18,6 @@ const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 app.use(express.static(join(__dirname, "public")));
-
-// In-memory store of the most recent result so the download endpoint can serve it.
-// (Single-user localhost tool; fine to keep in memory.)
-let lastLeads = [];
 
 // Metadata for populating the UI controls.
 app.get("/api/niches", (req, res) => {
@@ -81,29 +76,11 @@ app.get("/api/search", async (req, res) => {
       }
     );
 
-    lastLeads = leads;
     send("done", { summary, leads });
   } catch (err) {
     send("error", { message: err.message });
   } finally {
     res.end();
-  }
-});
-
-// Download the most recent results as CSV or XLSX.
-app.get("/api/download", async (req, res) => {
-  if (!lastLeads.length) {
-    res.status(404).json({ error: "No results to download yet. Run a search first." });
-    return;
-  }
-  const format = (req.query.format || "csv").toString().toLowerCase();
-  try {
-    const { buffer, contentType, filename } = await leadsToBuffer(lastLeads, format);
-    res.setHeader("Content-Type", contentType);
-    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
-    res.send(buffer);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
   }
 });
 

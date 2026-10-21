@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { and, eq, desc } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
-import { ensureUser, UnauthorizedError } from "@/lib/users";
+import { ensureUser } from "@/lib/users";
+import { errorResponse } from "@/lib/apiError";
 import { leadKey, type LeadLike } from "@/lib/leadKey";
 import { crmIdsForLeads } from "@/lib/leads";
 import { filterContactable } from "@/src/contactable.js";
@@ -55,9 +56,6 @@ export async function GET(req: NextRequest) {
     });
     return NextResponse.json({ searches: rows });
   } catch (err) {
-    if (err instanceof UnauthorizedError) {
-      return NextResponse.json({ error: "Not signed in" }, { status: 401 });
-    }
-    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
+    return errorResponse(err);
   }
 }

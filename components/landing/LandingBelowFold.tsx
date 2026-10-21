@@ -42,10 +42,6 @@ const FAQS = [
     a: "Yes. Every lead you find lands in your own CRM, where you can track status, add notes, and see the activity history for each business.",
   },
   {
-    q: "What can I export?",
-    a: "CSV and Excel (XLSX) — ready for your CRM, spreadsheet, or dialer.",
-  },
-  {
     q: "Who is LeadScout for?",
     a: "Freelancers, agencies, and SDRs who sell services to US businesses and need targeted prospect lists — fast.",
   },
@@ -72,8 +68,8 @@ const STEPS = [
     n: "03",
     bg: "bg-panel",
     light: false,
-    title: "Export & outreach",
-    body: "CSV or Excel — straight into your stack.",
+    title: "Work the pipeline",
+    body: "Update status, notes, and follow-ups as you reach out.",
     parallax: 16,
   },
 ];
@@ -95,12 +91,6 @@ const CAPABILITIES = [
     label: "CRM",
     title: "Track every lead",
     body: "Statuses, notes, and activity history for each business you find.",
-    chip: null,
-  },
-  {
-    label: "Export",
-    title: "Instant CSV & Excel",
-    body: "One click into your CRM, dialer, or cold-email tool.",
     chip: null,
   },
 ];
@@ -228,7 +218,7 @@ function HowItWorks() {
           <h2 className="font-display text-3xl font-semibold tracking-tight text-fg sm:text-4xl">
             How it works
           </h2>
-          <p className="mt-3 text-muted">Three steps. Export ready.</p>
+          <p className="mt-3 text-muted">Three steps from search to pipeline.</p>
         </Reveal>
 
         <div className="grid gap-5 sm:grid-cols-3">

@@ -1,7 +1,8 @@
 import { NextRequest } from "next/server";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
-import { ensureUser, UnauthorizedError } from "@/lib/users";
+import { ensureUser } from "@/lib/users";
+import { errorResponse } from "@/lib/apiError";
 import { recordUsage, getUsage } from "@/lib/usage";
 import { filterContactable } from "@/src/contactable.js";
 
@@ -17,8 +18,7 @@ export async function GET(req: NextRequest) {
   try {
     user = await ensureUser();
   } catch (err) {
-    const status = err instanceof UnauthorizedError ? 401 : 500;
-    return Response.json({ error: (err as Error).message }, { status });
+    return errorResponse(err);
   }
 
   const params = req.nextUrl.searchParams;

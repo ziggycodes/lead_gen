@@ -80,6 +80,10 @@ function describeActivity(a: LeadActivity): string {
       return d.at ? `Follow-up set for ${formatDate(String(d.at))}` : "Follow-up cleared";
     case "decision_makers_found":
       return `Found ${d.count ?? ""} decision maker${d.count === 1 ? "" : "s"}`;
+    case "email_sent":
+      return d.to ? `Email sent to ${d.to}` : "Email sent";
+    case "email_received":
+      return d.from ? `Reply from ${d.from}` : "Reply received";
     default:
       return a.type;
   }
@@ -123,12 +127,16 @@ export function LeadDrawer({
   onClose,
   onLeadChange,
   onLeadDeleted,
+  onOpenConversation,
+  onOpenMailboxes,
   embedded = false,
 }: {
   leadId: number | null;
   onClose: () => void;
   onLeadChange: (lead: CrmLead) => void;
   onLeadDeleted: (id: number) => void;
+  onOpenConversation?: (email: string) => void;
+  onOpenMailboxes?: () => void;
   embedded?: boolean;
 }) {
   const [lead, setLead] = useState<CrmLead | null>(null);
@@ -143,6 +151,11 @@ export function LeadDrawer({
   const [noteDraft, setNoteDraft] = useState("");
   const [dmLoading, setDmLoading] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [mailboxes, setMailboxes] = useState<{ id: number; address: string; isDefault: boolean; status: string }[]>([]);
+  const [composing, setComposing] = useState(false);
+  const [mailAccountId, setMailAccountId] = useState<number | "">("");
+  const [mailSubject, setMailSubject] = useState("");
+  const [mailBody, setMailBody] = useState("");
 
   const applyDetail = useCallback(
     (d: { lead: CrmLead; notes: LeadNote[]; activities: LeadActivity[] }) => {
@@ -163,6 +176,9 @@ export function LeadDrawer({
     setNoteDraft("");
     setConfirmDelete(false);
     setCopied(false);
+    setComposing(false);
+    setMailSubject("");
+    setMailBody("");
     if (leadId === null) return;
 
     let cancelled = false;
@@ -176,6 +192,27 @@ export function LeadDrawer({
       })
       .catch((err) => !cancelled && setError((err as Error).message))
       .finally(() => !cancelled && setLoading(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [leadId]);
+
+  useEffect(() => {
+    if (leadId === null) return;
+    let cancelled = false;
+    fetch("/api/email-accounts")
+      .then((res) => (res.ok ? res.json() : { mailboxes: [] }))
+      .then((json) => {
+        if (cancelled) return;
+        const rows = (json.mailboxes || []) as { id: number; address: string; isDefault: boolean; status: string }[];
+        const connected = rows.filter((row) => row.status === "connected");
+        setMailboxes(connected);
+        const preferred = connected.find((row) => row.isDefault) || connected[0];
+        setMailAccountId(preferred ? preferred.id : "");
+      })
+      .catch(() => {
+        if (!cancelled) setMailboxes([]);
+      });
     return () => {
       cancelled = true;
     };
@@ -239,6 +276,32 @@ export function LeadDrawer({
       if (!lead) return;
       await deleteNote(lead.id, noteId);
       setNotes((prev) => prev.filter((n) => n.id !== noteId));
+    });
+
+  const sendLeadMail = () =>
+    run(async () => {
+      if (!lead?.email || mailAccountId === "") return;
+      if (!mailSubject.trim() || !mailBody.trim()) {
+        throw new Error("Add a subject and a message.");
+      }
+      const res = await fetch("/api/email/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          accountId: mailAccountId,
+          to: lead.email,
+          subject: mailSubject,
+          body: mailBody,
+          leadId: lead.id,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Could not send that email.");
+      setComposing(false);
+      setMailSubject("");
+      setMailBody("");
+      applyDetail(await fetchLeadDetail(lead.id));
+      onOpenConversation?.(lead.email);
     });
 
   const findDecisionMakers = async () => {
@@ -469,6 +532,79 @@ export function LeadDrawer({
                         <span className="mt-0.5 block text-xs text-muted">
                           Also found: {otherEmails.join(", ")}
                         </span>
+                      )}
+                      {lead.email && mailboxes.length > 0 && !composing && (
+                        <button
+                          onClick={() => setComposing(true)}
+                          className="mt-1.5 text-xs font-semibold text-ink underline-offset-2 hover:underline"
+                        >
+                          Email this lead
+                        </button>
+                      )}
+                      {lead.email && mailboxes.length === 0 && (
+                        <button
+                          onClick={() => onOpenMailboxes?.()}
+                          className="mt-1.5 block text-xs font-medium text-muted underline-offset-2 hover:underline"
+                        >
+                          Connect a mailbox to email this lead
+                        </button>
+                      )}
+                      {composing && lead.email && (
+                        <form
+                          onSubmit={(e) => {
+                            e.preventDefault();
+                            sendLeadMail();
+                          }}
+                          className="mt-2 space-y-2"
+                        >
+                          <label className="block">
+                            <span className="text-xs font-medium text-muted">From</span>
+                            <select
+                              value={mailAccountId}
+                              onChange={(e) => setMailAccountId(Number(e.target.value))}
+                              className="mt-1 w-full rounded-lg border border-line bg-oat px-2 py-1.5 text-sm outline-none focus:border-accent"
+                            >
+                              {mailboxes.map((mailbox) => (
+                                <option key={mailbox.id} value={mailbox.id}>
+                                  {mailbox.address}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label className="block">
+                            <span className="text-xs font-medium text-muted">Subject</span>
+                            <input
+                              value={mailSubject}
+                              onChange={(e) => setMailSubject(e.target.value)}
+                              className="mt-1 w-full rounded-lg border border-line bg-oat px-2 py-1.5 text-sm outline-none focus:border-accent"
+                            />
+                          </label>
+                          <label className="block">
+                            <span className="text-xs font-medium text-muted">Message</span>
+                            <textarea
+                              value={mailBody}
+                              onChange={(e) => setMailBody(e.target.value)}
+                              rows={4}
+                              className="mt-1 w-full resize-none rounded-lg border border-line bg-oat px-2 py-1.5 text-sm outline-none focus:border-accent"
+                            />
+                          </label>
+                          <div className="flex justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setComposing(false)}
+                              className="rounded-full px-3 py-1 text-xs font-medium text-muted"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="submit"
+                              disabled={busy}
+                              className="rounded-full bg-accent px-3 py-1 text-xs font-semibold text-ink disabled:opacity-50"
+                            >
+                              {busy ? "Sending…" : "Send"}
+                            </button>
+                          </div>
+                        </form>
                       )}
                     </DetailRow>
                     <DetailRow icon={<Phone className="h-4 w-4" />} label="Phone">
