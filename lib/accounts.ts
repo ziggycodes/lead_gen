@@ -14,7 +14,7 @@ export interface AdminAccount {
   email: string | null;
   name: string | null;
   country: string | null;
-  plan: string;
+  plan: "free" | "premium";
   createdAt: string;
   accountStatus: AccountStatus;
   accountNote: string | null;
