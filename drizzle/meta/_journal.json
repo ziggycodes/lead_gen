@@ -36,6 +36,20 @@
       "when": 1792578004030,
       "tag": "0004_email_mailboxes",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1792579912478,
+      "tag": "0005_account_controls",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1792591340479,
+      "tag": "0006_user_name",
+      "breakpoints": true
     }
   ]
 }

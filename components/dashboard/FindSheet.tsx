@@ -29,6 +29,7 @@ export type SearchArrival = {
   searchId: number | null;
   stopped: boolean;
   finished: boolean;
+  notice?: string | null;
 };
 
 export function searchSummary(arrival: Pick<SearchArrival, "found" | "inserted" | "stopped">): string {
@@ -89,20 +90,36 @@ export function FindSheet({
   const abortRef = useRef<AbortController | null>(null);
   const chainRef = useRef(Promise.resolve());
   const searchIdRef = useRef<number | null>(null);
+  const noticeRef = useRef<string | null>(null);
   const searchIdReady = useRef<Promise<number | null>>(Promise.resolve(null));
   const insertedRef = useRef(0);
   const foundRef = useRef(0);
+  const mixRef = useRef("");
+  const [premium, setPremium] = useState<boolean | null>(null);
+  const [accountError, setAccountError] = useState<string | null>(null);
 
   useEffect(() => {
-    Promise.all([
-      fetch("/api/niches").then((r) => r.json()),
-      fetch("/api/states").then((r) => r.json()),
-    ])
-      .then(([n, s]) => {
+    let cancelled = false;
+    fetch("/api/usage")
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("Could not load your account."))))
+      .then(async (json) => {
+        if (cancelled) return;
+        const isPremium = json.plan === "premium";
+        setPremium(isPremium);
+        if (!isPremium) return;
+        const [nichesRes, statesRes] = await Promise.all([fetch("/api/niches"), fetch("/api/states")]);
+        if (!nichesRes.ok || !statesRes.ok) throw new Error("Could not load niches and states.");
+        const [n, s] = await Promise.all([nichesRes.json(), statesRes.json()]);
+        if (cancelled) return;
         setNiches(n);
         setStates(s);
       })
-      .catch(() => {});
+      .catch((err: Error) => {
+        if (!cancelled) setAccountError(err.message || "Could not load your account.");
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -173,7 +190,8 @@ export function FindSheet({
   };
 
   async function run() {
-    if (selectedNiches.size === 0) {
+    if (premium === null) return;
+    if (premium && selectedNiches.size === 0) {
       setError("Pick at least one niche.");
       return;
     }
@@ -181,21 +199,22 @@ export function FindSheet({
     setResult(null);
     setProgress(null);
     setStatusLine("Starting search…");
+    mixRef.current = "";
     setRunning(true);
     insertedRef.current = 0;
     foundRef.current = 0;
     onArrival({ found: 0, inserted: 0, searchId: null, stopped: false, finished: false });
     searchIdRef.current = null;
+    noticeRef.current = null;
     searchIdReady.current = Promise.resolve(null);
     chainRef.current = Promise.resolve();
 
-    const nicheParam = Array.from(selectedNiches).join(",");
-    const stateParam = selectedStates.size ? Array.from(selectedStates).join(",") : "US";
-    const params = new URLSearchParams({
-      niches: nicheParam,
-      states: stateParam,
-      limit: String(limit),
-    });
+    const params = new URLSearchParams();
+    if (premium) {
+      params.set("niches", Array.from(selectedNiches).join(","));
+      params.set("states", selectedStates.size ? Array.from(selectedStates).join(",") : "US");
+      params.set("limit", String(limit));
+    }
 
     const controller = new AbortController();
     abortRef.current = controller;
@@ -225,10 +244,17 @@ export function FindSheet({
       let buffer = "";
 
       const handleEvent = (event: string, data: Record<string, unknown>) => {
-        if (event === "progress") {
+        if (event === "meta") {
+          const stateName = typeof data.stateName === "string" ? data.stateName : "";
+          if (stateName) {
+            mixRef.current = stateName;
+            setStatusLine(`A mix of businesses in ${stateName}.`);
+          }
+        } else if (event === "progress") {
           const p = data as { step: number; totalSteps: number; total: number };
           setProgress(p);
-          setStatusLine(`Step ${p.step} of ${p.totalSteps} · ${p.total} leads`);
+          const mix = mixRef.current ? `A mix of businesses in ${mixRef.current}. ` : "";
+          setStatusLine(`${mix}Step ${p.step} of ${p.totalSteps} · ${p.total} leads`);
         } else if (event === "leads") {
           const batch = (data.leads as Lead[]) || [];
           foundRef.current += batch.length;
@@ -239,6 +265,7 @@ export function FindSheet({
           setStatusLine(`Looking up decision makers… ${data.done}/${data.total}`);
         } else if (event === "done") {
           if (typeof data.searchId === "number") searchIdRef.current = data.searchId;
+          if (typeof data.notice === "string" && data.notice) noticeRef.current = data.notice;
           const summary = data.summary as { total?: number } | undefined;
           const finishedLeads = (data.leads as Lead[]) || [];
           foundRef.current = typeof summary?.total === "number" ? summary.total : finishedLeads.length;
@@ -285,6 +312,7 @@ export function FindSheet({
           searchId: searchIdRef.current,
           stopped: wasStopped,
           finished: true,
+          notice: noticeRef.current,
         };
         setRunning(false);
         abortRef.current = null;
@@ -491,7 +519,16 @@ export function FindSheet({
                 <X className="h-4 w-4" />
               </button>
             </div>
-            <div className="scroll-thin flex-1 overflow-y-auto px-5 py-4">{picker}</div>
+            <div className="scroll-thin flex-1 overflow-y-auto px-5 py-4">
+              {premium === null && !accountError ? <p className="text-sm text-muted">Loading…</p> : null}
+              {accountError ? <p className="text-sm text-danger">{accountError}</p> : null}
+              {premium === false ? (
+                <p className="max-w-sm text-sm text-muted">
+                  Find leads looks through a mix of business types in one US state. You can bring in 20 leads a day.
+                </p>
+              ) : null}
+              {premium ? picker : null}
+            </div>
             <div className="space-y-3 border-t border-line px-5 py-4">
               {progress && (
                 <div>
@@ -510,6 +547,7 @@ export function FindSheet({
                   <Check className="mt-0.5 h-4 w-4 shrink-0" />
                   <div>
                     <p className="font-semibold">{searchSummary(result)}</p>
+                    {result.notice ? <p className="mt-1 text-ink/80">{result.notice}</p> : null}
                     {result.searchId != null && result.inserted > 0 && (
                       <p className="mt-0.5 text-xs text-ink/70">They are in the list. Close this panel to work them.</p>
                     )}
@@ -532,7 +570,7 @@ export function FindSheet({
                 </button>
                 <button
                   onClick={run}
-                  disabled={running}
+                  disabled={running || premium === null || Boolean(accountError)}
                   className="flex items-center gap-2 rounded-full bg-accent px-5 py-2.5 text-sm font-semibold text-ink disabled:opacity-40"
                 >
                   {running ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}

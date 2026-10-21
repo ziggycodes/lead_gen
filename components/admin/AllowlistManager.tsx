@@ -7,9 +7,11 @@ import { Brand } from "@/components/Brand";
 export function AllowlistManager({
   admins,
   initialEmails,
+  embedded = false,
 }: {
   admins: string[];
   initialEmails: string[];
+  embedded?: boolean;
 }) {
   const [emails, setEmails] = useState(initialEmails);
   const [draft, setDraft] = useState("");
@@ -66,16 +68,11 @@ export function AllowlistManager({
     }
   }
 
-  return (
-    <main className="mx-auto flex min-h-screen max-w-lg flex-col px-6 py-10">
-      <div className="flex items-center justify-between gap-4">
-        <Brand href="/app" />
-        <Link href="/app" className="text-sm text-muted hover:text-fg">
-          Dashboard
-        </Link>
-      </div>
-
-      <h1 className="mt-10 font-display text-3xl font-semibold tracking-tight">Who can sign in</h1>
+  const body = (
+    <>
+      <h2 className={embedded ? "font-display text-2xl font-semibold tracking-tight" : "mt-10 font-display text-3xl font-semibold tracking-tight"}>
+        Who can sign in
+      </h2>
       <p className="mt-3 text-muted">
         Add an email and that person can create an account and use LeadScout. Remove it and they lose access on their next visit.
       </p>
@@ -129,6 +126,20 @@ export function AllowlistManager({
       {invited.length === 0 ? (
         <p className="mt-4 text-sm text-muted">No other emails yet. Add one above.</p>
       ) : null}
+    </>
+  );
+
+  if (embedded) return <section>{body}</section>;
+
+  return (
+    <main className="mx-auto flex min-h-screen max-w-lg flex-col px-6 py-10">
+      <div className="flex items-center justify-between gap-4">
+        <Brand href="/app" />
+        <Link href="/app" className="text-sm text-muted hover:text-fg">
+          Dashboard
+        </Link>
+      </div>
+      {body}
     </main>
   );
 }

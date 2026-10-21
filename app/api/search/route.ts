@@ -1,10 +1,15 @@
 import { NextRequest } from "next/server";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
-import { ensureUser } from "@/lib/users";
+import { ensureUser, isPremiumPlan } from "@/lib/users";
 import { errorResponse } from "@/lib/apiError";
-import { recordUsage, getUsage } from "@/lib/usage";
+import { emailAllowance, recordEmailsFound, recordUsage, getUsage } from "@/lib/usage";
 import { filterContactable } from "@/src/contactable.js";
+import { admitWithinEmailCap, countEmailLeads } from "@/src/emailCap.js";
+import { REGULAR_DAILY_LEADS } from "@/lib/plans";
+import { planRegularSearch } from "@/src/regularSearch.js";
+import { listNicheKeys } from "@/src/niches.js";
+import { listStateIsoCodes, stateNameFromIso } from "@/src/usStates.js";
 
 export const dynamic = "force-dynamic";
 // Vercel caps this at 300s on Hobby and 800s on Pro; higher values fail the deploy.
@@ -21,14 +26,59 @@ export async function GET(req: NextRequest) {
     return errorResponse(err);
   }
 
-  const params = req.nextUrl.searchParams;
-  const niches = (params.get("niches") || "").trim();
-  const states = (params.get("states") || "US").trim() || "US";
-  const limit = Math.max(1, parseInt(params.get("limit") || "50", 10) || 50);
-
-  if (!niches) {
-    return Response.json({ error: "Pick at least one niche." }, { status: 400 });
+  if (user.accountStatus === "flagged") {
+    const reason = user.accountNote?.trim();
+    return Response.json(
+      { error: reason ? `New searches are paused. Reason: ${reason}` : "New searches are paused." },
+      { status: 403 }
+    );
   }
+
+  const params = req.nextUrl.searchParams;
+  const premium = isPremiumPlan(user.plan);
+  const usageNow = await getUsage(user.id);
+
+  let niches = "";
+  let states = "US";
+  let limit = 50;
+  let perNicheLimit: number | undefined;
+  let stateLabel: string | null = null;
+
+  if (!premium) {
+    const remaining = REGULAR_DAILY_LEADS - usageNow.consumedToday;
+    if (remaining <= 0) {
+      return Response.json({ error: "You've used today's 20 leads." }, { status: 403 });
+    }
+    const planned = planRegularSearch({
+      nicheKeys: listNicheKeys(),
+      stateCodes: listStateIsoCodes(),
+      remaining,
+    });
+    if (!planned.state || planned.niches.length === 0) {
+      return Response.json({ error: "No places are available to search." }, { status: 500 });
+    }
+    niches = planned.niches.join(",");
+    states = planned.state;
+    limit = planned.limit;
+    perNicheLimit = planned.perNicheLimit;
+    stateLabel = stateNameFromIso(planned.state) || planned.state;
+  } else {
+    niches = (params.get("niches") || "").trim();
+    states = (params.get("states") || "US").trim() || "US";
+    limit = Math.max(1, parseInt(params.get("limit") || "50", 10) || 50);
+    if (!niches) {
+      return Response.json({ error: "Pick at least one niche." }, { status: 400 });
+    }
+  }
+
+  const allowance = await emailAllowance(user.id, user.emailDailyLimit);
+  if (allowance.remaining === 0) {
+    return Response.json(
+      { error: `You've reached today's email limit (${allowance.limit}).` },
+      { status: 403 }
+    );
+  }
+  const emailBudget = allowance.remaining;
 
   // Block parallel runs per user.
   const running = await db().query.searches.findFirst({
@@ -60,9 +110,10 @@ export async function GET(req: NextRequest) {
     .returning();
 
   const encoder = new TextEncoder();
-  let cancelled = false;
+  let clientCancelled = false;
+  let stoppedForCap = false;
   req.signal.addEventListener("abort", () => {
-    cancelled = true;
+    clientCancelled = true;
   });
 
   const userId = user.id;
@@ -80,6 +131,9 @@ export async function GET(req: NextRequest) {
       // Mirrored from the onLeads callback so a mid-run failure still persists
       // and returns whatever was collected before it broke.
       const collected: unknown[] = [];
+      let emailsKept = 0;
+      let capNotice: string | null = null;
+      if (stateLabel) send("meta", { stateName: stateLabel });
 
       try {
         const [{ runSearch }, { overpassDbCache }, { findDecisionMakers, hasDecisionMakerLookup }] =
@@ -91,11 +145,12 @@ export async function GET(req: NextRequest) {
         const dmEnabled = hasDecisionMakerLookup();
         const dmLimit = Number(process.env.DECISION_MAKER_MAX_PER_SEARCH) || 25;
 
-        const { leads, summary } = await runSearch(
+        const { summary } = await runSearch(
           {
             niches,
             states,
             limit,
+            perNicheLimit,
             delayMs: OVERPASS_DELAY_MS,
             noEnrich: true, // web users get the Basic engine (see pricing plan)
             cache: overpassDbCache,
@@ -111,39 +166,49 @@ export async function GET(req: NextRequest) {
             // Push rows to the table as they're found so a long run shows
             // results immediately instead of only at the end.
             onLeads: (fresh: unknown[]) => {
-              const keep = filterContactable(fresh);
-              if (!keep.length) return;
-              collected.push(...keep);
-              send("leads", { leads: keep });
+              const contactable = filterContactable(fresh);
+              const admitted = admitWithinEmailCap(contactable, emailBudget, emailsKept);
+              emailsKept = admitted.emails;
+              if (admitted.capped && !stoppedForCap) {
+                stoppedForCap = true;
+                capNotice = `This search stopped because you reached today's email limit of ${allowance.limit}.`;
+                send("log", { msg: capNotice });
+              }
+              if (!admitted.keep.length) return;
+              collected.push(...admitted.keep);
+              send("leads", { leads: admitted.keep });
             },
             onContactProgress: (p: unknown) => send("contact", p),
             onDecisionMakerProgress: (p: unknown) => send("decision", p),
-            isCancelled: () => cancelled,
+            isCancelled: () => clientCancelled || stoppedForCap,
           }
         );
 
-        const contactable = filterContactable(leads);
-        await recordUsage(userId, contactable.length);
+        const kept = collected;
+        await recordUsage(userId, kept.length);
+        await recordEmailsFound(userId, countEmailLeads(kept));
         await db()
           .update(schema.searches)
           .set({
-            status: cancelled ? "cancelled" : "completed",
-            leadCount: contactable.length,
-            resultBlob: contactable,
+            status: clientCancelled ? "cancelled" : "completed",
+            leadCount: kept.length,
+            resultBlob: kept,
             completedAt: new Date(),
           })
           .where(eq(schema.searches.id, searchRow.id));
 
         const usage = await getUsage(userId);
         send("done", {
-          summary: { ...summary, total: contactable.length },
-          leads: contactable,
+          summary: { ...summary, total: kept.length },
+          leads: kept,
           usage,
           searchId: searchRow.id,
+          notice: capNotice,
         });
       } catch (err) {
-        const kept = filterContactable(collected);
+        const kept = collected;
         await recordUsage(userId, kept.length);
+        await recordEmailsFound(userId, countEmailLeads(kept));
         await db()
           .update(schema.searches)
           .set({

@@ -29,6 +29,40 @@ export function Dashboard() {
   const [arrival, setArrival] = useState<SearchArrival | null>(null);
   const [view, setView] = useState<WorkbenchView>("table");
   const [conversationFocus, setConversationFocus] = useState<string | null>(null);
+  const [notices, setNotices] = useState<{ id: number; body: string }[]>([]);
+  const [account, setAccount] = useState<{ status: string; note: string | null } | null>(null);
+  const [noticeError, setNoticeError] = useState<string | null>(null);
+
+  const loadNotices = useCallback(async () => {
+    try {
+      const res = await fetch("/api/notices");
+      if (!res.ok) return;
+      const json = await res.json();
+      setNotices(Array.isArray(json.notices) ? json.notices : []);
+      setAccount(json.account ?? null);
+    } catch {
+      /* the search route still enforces a flag or cap */
+    }
+  }, []);
+
+  const dismissNotice = useCallback(async (id: number) => {
+    setNoticeError(null);
+    try {
+      const res = await fetch("/api/notices", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: [id] }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setNoticeError(typeof data.error === "string" ? data.error : "Could not dismiss that notice.");
+        return;
+      }
+      setNotices((current) => current.filter((notice) => notice.id !== id));
+    } catch {
+      setNoticeError("Could not dismiss that notice. Check your connection and try again.");
+    }
+  }, []);
 
   const refreshUsage = useCallback(async () => {
     try {
@@ -59,7 +93,8 @@ export function Dashboard() {
   useEffect(() => {
     refreshUsage();
     loadLeads();
-  }, [refreshUsage, loadLeads]);
+    loadNotices();
+  }, [refreshUsage, loadLeads, loadNotices]);
 
   const mergeLeads = useCallback((updated: CrmLead[]) => {
     if (!updated.length) return;
@@ -122,6 +157,35 @@ export function Dashboard() {
         inspectorOpen={openLeadId != null}
         onOpenRail={() => setRailOpen(true)}
         onCloseRail={() => setRailOpen(false)}
+        alerts={
+          account?.status === "flagged" || notices.length > 0 || noticeError ? (
+            <div>
+              {account?.status === "flagged" ? (
+                <div className="border-b border-ink bg-ink px-4 py-2.5 text-sm text-panel">
+                  <p className="font-medium">New searches are paused.</p>
+                  {account.note ? <p className="mt-0.5 max-w-2xl text-panel/80">{account.note}</p> : null}
+                </div>
+              ) : null}
+              {notices.length > 0 || noticeError ? (
+                <ul className="border-b border-line bg-panel">
+                  {notices.map((notice) => (
+                    <li key={notice.id} className="flex items-start gap-3 px-4 py-2 text-sm">
+                      <p className="min-w-0 flex-1">{notice.body}</p>
+                      <button
+                        type="button"
+                        onClick={() => dismissNotice(notice.id)}
+                        className="shrink-0 text-muted hover:text-fg"
+                      >
+                        Dismiss
+                      </button>
+                    </li>
+                  ))}
+                  {noticeError ? <li className="px-4 py-2 text-sm text-danger">{noticeError}</li> : null}
+                </ul>
+              ) : null}
+            </div>
+          ) : null
+        }
         rail={
           <Sidebar
             filters={filters}
@@ -165,6 +229,7 @@ export function Dashboard() {
         {arrival && (arrival.finished || arrival.inserted > 0) && (
           <div className="flex flex-wrap items-center gap-3 border-b border-line bg-accent/20 px-4 py-2 text-sm text-ink">
             <span>{arrival.finished ? searchSummary(arrival) : `${arrival.inserted} new from this search`}</span>
+            {arrival.notice ? <span className="max-w-xl">{arrival.notice}</span> : null}
             {arrival.searchId != null && arrival.inserted > 0 && (
               <button
                 onClick={() => {

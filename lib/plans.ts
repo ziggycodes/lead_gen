@@ -2,7 +2,10 @@
 // All tiers use the free Basic engine (OSM + website contact scraping), so leads
 // cost ~nothing to serve. SerpApi ratings enrichment stays off for web users.
 
-// Lead generation itself is unlimited - credit packs don't gate searches.
+// Premium search is not on an automatic daily cap. Regular accounts stop at
+// REGULAR_DAILY_LEADS businesses a day. An admin can still set a daily email cap.
+export const REGULAR_DAILY_LEADS = 20;
+
 export const FREE_TRIAL_LEADS = 50;
 
 export interface CreditPack {

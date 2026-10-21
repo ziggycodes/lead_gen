@@ -144,9 +144,14 @@ export async function runSearch(opts, callbacks = {}) {
         // Ask Overpass for a bounded slice rather than every POI in the state:
         // unnamed and duplicate entries get dropped, so over-fetch what's left
         // to collect. Uncapped statewide queries routinely time out upstream.
+        const perNicheLimit =
+          Number.isFinite(opts.perNicheLimit) && opts.perNicheLimit > 0
+            ? Math.floor(opts.perNicheLimit)
+            : null;
         const remaining = Math.max(1, limit - leads.length);
+        const room = perNicheLimit == null ? remaining : Math.min(remaining, perNicheLimit);
         const query = buildQuery(stateIso, niche, {
-          maxElements: capForElements(remaining * CONTACTABLE_OVERFETCH),
+          maxElements: capForElements(room * CONTACTABLE_OVERFETCH),
         });
         const elements = await runQuery(query, { onLog, cache: opts.cache || null, isCancelled });
         const rawLeads = elements
@@ -169,7 +174,7 @@ export async function runSearch(opts, callbacks = {}) {
         }
 
         if (opts.scrapeContacts && leads.length < limit && scrapeForAdmission.length && !isCancelled()) {
-          const slots = (limit - leads.length) * ADMISSION_SCRAPE_MULT;
+          const slots = room * ADMISSION_SCRAPE_MULT;
           const batch = scrapeForAdmission.slice(0, Math.min(slots, ADMISSION_SCRAPE_CAP));
           await scrapeWebsites(batch, { onLog, onContactProgress, isCancelled });
         }
@@ -179,6 +184,7 @@ export async function runSearch(opts, callbacks = {}) {
         const ready = [];
         for (const lead of fresh) {
           if (leads.length >= limit) break;
+          if (perNicheLimit != null && ready.length >= perNicheLimit) break;
           if (!isContactable(lead)) continue;
           if (!claimNewEmail(lead, seen, emailBefore.get(lead))) continue;
           leads.push(lead);

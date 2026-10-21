@@ -1,6 +1,7 @@
 import { asc } from "drizzle-orm";
 import { redirect } from "next/navigation";
-import { AllowlistManager } from "@/components/admin/AllowlistManager";
+import { AdminConsole } from "@/components/admin/AdminConsole";
+import { listAccounts } from "@/lib/accounts";
 import { adminEmails } from "@/lib/access";
 import { db, schema } from "@/lib/db";
 import { ForbiddenError, requireAdmin, UnauthorizedError } from "@/lib/users";
@@ -8,7 +9,7 @@ import { ForbiddenError, requireAdmin, UnauthorizedError } from "@/lib/users";
 export const dynamic = "force-dynamic";
 
 export const metadata = {
-  title: "Access — LeadScout",
+  title: "Accounts — LeadScout",
 };
 
 export default async function AdminPage() {
@@ -20,10 +21,19 @@ export default async function AdminPage() {
     throw err;
   }
 
-  const rows = await db()
-    .select({ email: schema.allowedEmails.email })
-    .from(schema.allowedEmails)
-    .orderBy(asc(schema.allowedEmails.createdAt));
+  const [rows, accounts] = await Promise.all([
+    db()
+      .select({ email: schema.allowedEmails.email })
+      .from(schema.allowedEmails)
+      .orderBy(asc(schema.allowedEmails.createdAt)),
+    listAccounts(),
+  ]);
 
-  return <AllowlistManager admins={adminEmails()} initialEmails={rows.map((row) => row.email)} />;
+  return (
+    <AdminConsole
+      admins={adminEmails()}
+      initialEmails={rows.map((row) => row.email)}
+      initialAccounts={accounts}
+    />
+  );
 }

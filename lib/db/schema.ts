@@ -17,11 +17,18 @@ export const users = pgTable(
     id: serial("id").primaryKey(),
     clerkId: text("clerk_id").notNull(),
     email: text("email"),
+    name: text("name"),
     country: text("country"),
     plan: text("plan").notNull().default("free"),
     paystackCustomerCode: text("paystack_customer_code"),
     // Set once legacy saved leads and search blobs have been imported into `leads`.
     crmBackfilledAt: timestamp("crm_backfilled_at", { withTimezone: true }),
+    // active | flagged | restricted. Flagged accounts can still use the CRM
+    // and mail. Restricted accounts are locked out until an admin lifts it.
+    accountStatus: text("account_status").notNull().default("active"),
+    accountNote: text("account_note"),
+    // Null means contact emails found in searches are unlimited.
+    emailDailyLimit: integer("email_daily_limit"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex("users_clerk_id_idx").on(t.clerkId)]
@@ -37,9 +44,28 @@ export const usage = pgTable("usage", {
   reserved: integer("reserved").notNull().default(0),
   consumedToday: integer("consumed_today").notNull().default(0),
   dailyResetAt: date("daily_reset_at"),
+  // Contact emails found in searches today. One per lead that has an email.
+  emailsFoundToday: integer("emails_found_today").notNull().default(0),
+  emailsFoundOn: date("emails_found_on"),
   totalConsumed: integer("total_consumed").notNull().default(0),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+// What an admin did to an account, shown to that user until they dismiss it.
+export const accountNotices = pgTable(
+  "account_notices",
+  {
+    id: serial("id").primaryKey(),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    body: text("body").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    readAt: timestamp("read_at", { withTimezone: true }),
+  },
+  (t) => [index("account_notices_user_idx").on(t.userId)]
+);
 
 export const searches = pgTable("searches", {
   id: serial("id").primaryKey(),

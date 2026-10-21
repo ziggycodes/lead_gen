@@ -14,6 +14,7 @@ export function AppShell({
   onCloseRail,
   rail,
   inspector,
+  alerts,
   children,
 }: {
   dueCount: number;
@@ -24,6 +25,7 @@ export function AppShell({
   onCloseRail: () => void;
   rail: ReactNode;
   inspector: ReactNode;
+  alerts?: ReactNode;
   children: ReactNode;
 }) {
   return (
@@ -52,6 +54,7 @@ export function AppShell({
           <UserButton />
         </div>
       </header>
+      {alerts}
 
       <div className="flex min-h-0 flex-1">
         <div className="hidden w-60 shrink-0 lg:flex">{rail}</div>

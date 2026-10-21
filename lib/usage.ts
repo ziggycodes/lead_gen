@@ -1,12 +1,22 @@
 import { eq, sql } from "drizzle-orm";
 import { db, schema } from "./db";
 
-// Lead generation is unlimited. The usage table is a running counter kept for
-// history and stats only - nothing in here can cap or block a search.
+// Regular accounts stop at 20 businesses a day, counted in consumedToday.
+// Contact emails found in a search are capped only when an admin has set
+// `users.email_daily_limit`. Premium accounts are not on the automatic 20.
 export interface UsageSnapshot {
   unlimited: true;
   consumedToday: number;
   totalConsumed: number;
+  emailsFoundToday: number;
+  emailDailyLimit: number | null;
+}
+
+export interface EmailAllowance {
+  foundToday: number;
+  limit: number | null;
+  // Null when the account has no daily cap.
+  remaining: number | null;
 }
 
 function todayStr(): string {
@@ -23,16 +33,63 @@ async function resetDailyIfNeeded(userId: number): Promise<void> {
     );
 }
 
+// Count in SQL. A date column comes back as a local Date, and toISOString()
+// would move it to the previous UTC day for anyone ahead of UTC.
+async function emailsFoundToday(userId: number): Promise<number> {
+  const today = todayStr();
+  const [row] = await db()
+    .select({
+      found: sql<number>`case when ${schema.usage.emailsFoundOn} is null or ${schema.usage.emailsFoundOn} < ${today} then 0 else ${schema.usage.emailsFoundToday} end`,
+    })
+    .from(schema.usage)
+    .where(eq(schema.usage.userId, userId));
+  return Number(row?.found) || 0;
+}
+
 export async function getUsage(userId: number): Promise<UsageSnapshot> {
   await resetDailyIfNeeded(userId);
-  const row = await db().query.usage.findFirst({
-    where: eq(schema.usage.userId, userId),
-  });
+  const [row, user, emailsFound] = await Promise.all([
+    db().query.usage.findFirst({
+      where: eq(schema.usage.userId, userId),
+    }),
+    db().query.users.findFirst({
+      where: eq(schema.users.id, userId),
+      columns: { emailDailyLimit: true },
+    }),
+    emailsFoundToday(userId),
+  ]);
   return {
     unlimited: true,
     consumedToday: row?.consumedToday ?? 0,
     totalConsumed: row?.totalConsumed ?? 0,
+    emailsFoundToday: emailsFound,
+    emailDailyLimit: user?.emailDailyLimit ?? null,
   };
+}
+
+export async function emailAllowance(userId: number, limit: number | null): Promise<EmailAllowance> {
+  const foundToday = await emailsFoundToday(userId);
+  return {
+    foundToday,
+    limit,
+    remaining: limit == null ? null : Math.max(0, limit - foundToday),
+  };
+}
+
+// Adds emails found in one search. A new UTC day replaces the counter instead
+// of stacking on yesterday's total.
+export async function recordEmailsFound(userId: number, emails: number): Promise<void> {
+  const found = Math.max(0, Math.floor(emails));
+  if (found === 0) return;
+  const today = todayStr();
+  await db()
+    .update(schema.usage)
+    .set({
+      emailsFoundToday: sql`case when ${schema.usage.emailsFoundOn} is null or ${schema.usage.emailsFoundOn} < ${today} then ${found} else ${schema.usage.emailsFoundToday} + ${found} end`,
+      emailsFoundOn: today,
+      updatedAt: sql`now()`,
+    })
+    .where(eq(schema.usage.userId, userId));
 }
 
 export async function recordUsage(userId: number, leads: number): Promise<void> {
