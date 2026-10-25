@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, asc, eq, ne, sql } from "drizzle-orm";
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { isAdminEmail, isEmailAllowed, normalizeEmail } from "./access";
 import { db, schema } from "./db";
@@ -48,7 +48,7 @@ function toAppUser(row: {
   };
 }
 
-async function liveProfile(): Promise<{ email: string | null; name: string | null }> {
+async function liveProfile(): Promise<{ email: string | null; name: string | null; emailVerified: boolean }> {
   const cu = await currentUser();
   const raw = cu?.primaryEmailAddress?.emailAddress?.trim() || null;
   const email = normalizeEmail(raw) ?? raw;
@@ -57,7 +57,29 @@ async function liveProfile(): Promise<{ email: string | null; name: string | nul
     .filter(Boolean)
     .join(" ")
     .slice(0, 120);
-  return { email, name: name || null };
+  const emailVerified = cu?.primaryEmailAddress?.verification?.status === "verified";
+  return { email, name: name || null, emailVerified };
+}
+
+// A new Clerk instance (development -> production) gives everyone a new Clerk
+// user id. Move their existing account to it by verified email, so their leads,
+// searches, and mailboxes stay theirs. Clerk allows one account per email in an
+// instance, so a different clerk_id with the same verified email is the same person.
+async function relinkByEmail(clerkId: string, email: string, name: string | null) {
+  const match = await db().query.users.findFirst({
+    where: and(sql`lower(${schema.users.email}) = ${email.toLowerCase()}`, ne(schema.users.clerkId, clerkId)),
+    orderBy: [asc(schema.users.id)],
+    columns: { id: true },
+  });
+  if (!match) return null;
+  const [relinked] = await db()
+    .update(schema.users)
+    .set({ clerkId, ...(name ? { name } : {}) })
+    // A concurrent first request may have relinked it already; then this matches nothing.
+    .where(and(eq(schema.users.id, match.id), ne(schema.users.clerkId, clerkId)))
+    .returning();
+  if (relinked) console.info(JSON.stringify({ event: "user_relinked", userId: relinked.id }));
+  return relinked ?? null;
 }
 
 async function liveEmail(): Promise<string | null> {
@@ -73,7 +95,7 @@ export async function readUser(): Promise<AppUser> {
   const { userId: clerkId } = await auth();
   if (!clerkId) throw new UnauthorizedError();
 
-  const { email, name } = await liveProfile();
+  const { email, name, emailVerified } = await liveProfile();
   if (!(await isEmailAllowed(email))) throw new ForbiddenError();
 
   const existing = await db().query.users.findFirst({
@@ -92,6 +114,11 @@ export async function readUser(): Promise<AppUser> {
       if (updated) return toAppUser(updated);
     }
     return toAppUser(existing);
+  }
+
+  if (email && emailVerified) {
+    const relinked = await relinkByEmail(clerkId, email, name);
+    if (relinked) return toAppUser(relinked);
   }
 
   const [user] = await db()

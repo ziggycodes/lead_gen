@@ -45,6 +45,24 @@ Not built yet; the CRM comes first. Notes for when this becomes a priority:
 - Bulk sending needs a rate-limited worker/queue and unsubscribe/suppression handling
   before it goes live.
 
+## Deferred: payments (Paystack)
+
+Not live yet. Premium is granted by an admin on `/admin`; nobody can pay in the app.
+The code from the credit-pack era is still in place (`app/api/billing/checkout`,
+`app/api/webhooks/paystack`, `lib/paystack.ts`, `lib/payments.ts`, the `payments`
+table, and the packs in `lib/plans.ts`), but credits no longer gate searches.
+To do when payments become a priority:
+
+- Decide what a payment buys now: a Premium subscription or one-off upgrade fits
+  the current free/premium model better than credit packs. Update `lib/plans.ts`,
+  the checkout route, and the webhook to grant `plan = "premium"` instead of credits.
+- Bring pricing back to the landing page and add an upgrade path in the app.
+- Test end to end with Paystack **test** keys before going live.
+- Outside the IDE: set the live `PAYSTACK_SECRET_KEY` / `NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY`
+  in Vercel (Production only), and set the Paystack webhook URL to
+  `https://leadscout.nocodeziggy.com/api/webhooks/paystack`. The checkout callback uses
+  `NEXT_PUBLIC_APP_URL`.
+
 ## What you get per lead
 
 | Column | Description |
@@ -66,7 +84,7 @@ CRM exports also include Status, Saved, Contact Name, and Follow Up.
 - **Clerk** — authentication (free tier; runs keyless in dev)
 - **Postgres + Drizzle** — users, usage/quota, searches, CRM leads/notes/activity, Overpass cache (free tier: Neon/Supabase)
 - **Inngest** — background search jobs (each niche is a short step under Vercel's 300s limit)
-- **Paystack** — NGN credit-pack payments (test keys in dev). Purchases are recorded but credits no longer gate searches.
+- **Paystack** — payments, not live yet (see "Deferred: payments" above)
 
 ### Business rules
 
