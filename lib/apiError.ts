@@ -24,3 +24,9 @@ export function parseIds(value: unknown, max = 5000): number[] | null {
   if (!ids.length || ids.length > max) return null;
   return Array.from(new Set(ids));
 }
+
+// Auth failures are expected and already answered with 401/403; log everything else by name only.
+export function logAdminFailure(event: string, err: unknown) {
+  if (err instanceof UnauthorizedError || err instanceof ForbiddenError) return;
+  console.error(JSON.stringify({ event, name: err instanceof Error ? err.name : "Error" }));
+}

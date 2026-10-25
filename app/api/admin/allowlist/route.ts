@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { asc, eq } from "drizzle-orm";
 import { adminEmails, isAdminEmail, normalizeEmail } from "@/lib/access";
+import { recordAdminAction } from "@/lib/adminAudit";
 import { badRequest, errorResponse } from "@/lib/apiError";
 import { db, schema } from "@/lib/db";
 import { ForbiddenError, requireAdmin, UnauthorizedError } from "@/lib/users";
@@ -36,16 +37,22 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
-    await requireAdmin();
+    const { email: adminEmail } = await requireAdmin();
     const body = await req.json().catch(() => null);
     const email = normalizeEmail(typeof body?.email === "string" ? body.email : null);
     if (!email) return badRequest("Enter a valid email address.");
     if (isAdminEmail(email)) return badRequest("That email can already sign in.");
 
-    await db()
-      .insert(schema.allowedEmails)
-      .values({ email })
-      .onConflictDoNothing({ target: schema.allowedEmails.email });
+    await db().transaction(async (tx) => {
+      const added = await tx
+        .insert(schema.allowedEmails)
+        .values({ email })
+        .onConflictDoNothing({ target: schema.allowedEmails.email })
+        .returning({ email: schema.allowedEmails.email });
+      if (added.length) {
+        await recordAdminAction(tx, { adminEmail, action: "allowlist_add", targetEmail: email });
+      }
+    });
 
     console.info(JSON.stringify({ event: "allowlist_add" }));
     return NextResponse.json({ email });
@@ -57,12 +64,20 @@ export async function POST(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   try {
-    await requireAdmin();
+    const { email: adminEmail } = await requireAdmin();
     const body = await req.json().catch(() => null);
     const email = normalizeEmail(typeof body?.email === "string" ? body.email : null);
     if (!email) return badRequest("Enter a valid email address.");
 
-    await db().delete(schema.allowedEmails).where(eq(schema.allowedEmails.email, email));
+    await db().transaction(async (tx) => {
+      const removed = await tx
+        .delete(schema.allowedEmails)
+        .where(eq(schema.allowedEmails.email, email))
+        .returning({ email: schema.allowedEmails.email });
+      if (removed.length) {
+        await recordAdminAction(tx, { adminEmail, action: "allowlist_remove", targetEmail: email });
+      }
+    });
     console.info(JSON.stringify({ event: "allowlist_remove" }));
     return NextResponse.json({ email });
   } catch (err) {

@@ -34,7 +34,7 @@ export async function GET() {
 
 export async function PATCH(req: NextRequest) {
   try {
-    await requireAdmin();
+    const { email: adminEmail } = await requireAdmin();
     const body = await req.json().catch(() => null);
     const userId = Number(body?.userId);
     if (!Number.isInteger(userId) || userId <= 0) {
@@ -42,6 +42,7 @@ export async function PATCH(req: NextRequest) {
     }
     const action = typeof body?.action === "string" ? body.action : "";
     const account = await applyAccountAction({
+      adminEmail,
       userId,
       action,
       emailDailyLimit: body?.emailDailyLimit,

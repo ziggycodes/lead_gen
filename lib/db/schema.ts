@@ -264,6 +264,26 @@ export const emailMessages = pgTable(
   ]
 );
 
+// Audit trail of admin changes. Admins are identified by email because an
+// ADMIN_EMAILS address may never have opened the app and so has no users row.
+export const adminActions = pgTable(
+  "admin_actions",
+  {
+    id: serial("id").primaryKey(),
+    adminEmail: text("admin_email").notNull(),
+    targetUserId: integer("target_user_id").references(() => users.id, { onDelete: "set null" }),
+    // Allowlist actions have no account; the email lives here instead.
+    targetEmail: text("target_email"),
+    action: text("action").notNull(),
+    detail: jsonb("detail"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("admin_actions_target_created_idx").on(t.targetUserId, t.createdAt),
+    index("admin_actions_created_idx").on(t.createdAt),
+  ]
+);
+
 // Emails allowed to sign in, besides the admin addresses in ADMIN_EMAILS.
 export const allowedEmails = pgTable("allowed_emails", {
   email: text("email").primaryKey(),

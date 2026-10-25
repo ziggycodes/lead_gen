@@ -1,5 +1,6 @@
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { isAdminEmail } from "./access";
+import { recordAdminAction } from "./adminAudit";
 import { db, schema } from "./db";
 import type { AccountStatus } from "./users";
 
@@ -25,6 +26,8 @@ export interface AdminAccount {
   totalConsumed: number;
   hasMailbox: boolean;
   isAdmin: boolean;
+  balance: number;
+  lastSearchAt: string | null;
 }
 
 export interface AccountNotice {
@@ -99,6 +102,8 @@ function toAccount(row: {
   leadsWithEmail: unknown;
   totalConsumed: unknown;
   hasMailbox: unknown;
+  balance: unknown;
+  lastSearchAt: Date | string | null;
 }): AdminAccount {
   const created =
     row.createdAt instanceof Date ? row.createdAt.toISOString() : String(row.createdAt ?? "");
@@ -118,6 +123,8 @@ function toAccount(row: {
     totalConsumed: Number(row.totalConsumed) || 0,
     hasMailbox: row.hasMailbox === true || row.hasMailbox === "t",
     isAdmin: isAdminEmail(row.email),
+    balance: Number(row.balance) || 0,
+    lastSearchAt: row.lastSearchAt ? new Date(row.lastSearchAt).toISOString() : null,
   };
 }
 
@@ -139,6 +146,8 @@ function accountQuery() {
       leadCount: sql<number>`(select count(*)::int from ${schema.leads} where ${schema.leads.userId} = ${schema.users.id})`,
       leadsWithEmail: sql<number>`(select count(*)::int from ${schema.leads} where ${schema.leads.userId} = ${schema.users.id} and btrim(${schema.leads.email}) <> '')`,
       hasMailbox: sql<boolean>`exists (select 1 from ${schema.emailAccounts} where ${schema.emailAccounts.userId} = ${schema.users.id})`,
+      balance: sql<number>`coalesce(${schema.usage.balance}, 0)`,
+      lastSearchAt: sql<string | null>`(select max(${schema.searches.createdAt}) from ${schema.searches} where ${schema.searches.userId} = ${schema.users.id})`,
     })
     .from(schema.users)
     .leftJoin(schema.usage, eq(schema.usage.userId, schema.users.id));
@@ -185,7 +194,25 @@ function noticeFor(
   return null;
 }
 
+export async function loadAccountById(userId: number): Promise<AdminAccount | null> {
+  return loadAccount(userId);
+}
+
+function auditDetail(
+  action: AccountAction,
+  target: { plan: string; emailDailyLimit: number | null; accountStatus: string },
+  note: string | null,
+  limit: number | null
+): Record<string, unknown> {
+  if (action === "set_limit") return { from: target.emailDailyLimit, to: limit };
+  if (action === "grant_premium" || action === "revoke_premium") {
+    return { from: target.plan, to: action === "grant_premium" ? "premium" : "free" };
+  }
+  return { from: target.accountStatus, note };
+}
+
 export async function applyAccountAction(input: {
+  adminEmail: string;
   userId: number;
   action: string;
   emailDailyLimit?: unknown;
@@ -274,6 +301,12 @@ export async function applyAccountAction(input: {
         body: notice.body,
       });
     }
+    await recordAdminAction(tx, {
+      adminEmail: input.adminEmail,
+      action,
+      targetUserId: target.id,
+      detail: auditDetail(action, target, note, limit),
+    });
   });
 
   console.info(JSON.stringify({ event: "account_action", action, userId: target.id }));
