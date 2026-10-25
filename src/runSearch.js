@@ -104,6 +104,70 @@ export function summarize(leads) {
   };
 }
 
+// One state + niche: query Overpass, dedupe against `seen`, scrape websites, and
+// return up to `room` contactable leads. Mutates `seen`. The web app runs each
+// call as its own background step; runSearch loops over it for the CLI.
+// opts: { cache, scrapeContacts, overpass: { requestTimeoutMs, deadlineMs, retries } }
+export async function searchNiche({ stateIso, niche, room, seen, opts = {}, callbacks = {} }) {
+  const onLog = callbacks.onLog || (() => {});
+  const onContactProgress = callbacks.onContactProgress || (() => {});
+  const isCancelled = callbacks.isCancelled || (() => false);
+
+  // Ask Overpass for a bounded slice rather than every POI in the state:
+  // unnamed and duplicate entries get dropped, so over-fetch what's left
+  // to collect. Uncapped statewide queries routinely time out upstream.
+  const query = buildQuery(stateIso, niche, {
+    maxElements: capForElements(room * CONTACTABLE_OVERFETCH),
+  });
+  let fromCache = false;
+  const cache = opts.cache
+    ? {
+        get: async (q) => {
+          const hit = await opts.cache.get(q);
+          if (hit) fromCache = true;
+          return hit;
+        },
+        set: (q, elements) => opts.cache.set(q, elements),
+      }
+    : null;
+  const elements = await runQuery(query, { ...(opts.overpass || {}), onLog, cache, isCancelled });
+  const rawLeads = elements
+    .map((el) => elementToLead(el, { niche: niche.key, nicheLabel: niche.label, stateIso }))
+    .filter(Boolean);
+  const fresh = dedupe(rawLeads, seen);
+  const emailBefore = new Map();
+  for (const lead of fresh) emailBefore.set(lead, normalizeEmail(lead.email));
+
+  const scrapeForEmail = [];
+  const scrapeForAdmission = [];
+  for (const lead of fresh) {
+    if (!(opts.scrapeContacts && lead.website && !emailBefore.get(lead))) continue;
+    if (isContactable(lead)) scrapeForEmail.push(lead);
+    else scrapeForAdmission.push(lead);
+  }
+
+  if (scrapeForEmail.length && !isCancelled()) {
+    await scrapeWebsites(scrapeForEmail, { onLog, onContactProgress, isCancelled });
+  }
+
+  if (opts.scrapeContacts && scrapeForAdmission.length && !isCancelled()) {
+    const slots = room * ADMISSION_SCRAPE_MULT;
+    const batch = scrapeForAdmission.slice(0, Math.min(slots, ADMISSION_SCRAPE_CAP));
+    await scrapeWebsites(batch, { onLog, onContactProgress, isCancelled });
+  }
+
+  // Emit only after emails are scraped, so a shared address collapses
+  // the batch before it is saved.
+  const ready = [];
+  for (const lead of fresh) {
+    if (ready.length >= room) break;
+    if (!isContactable(lead)) continue;
+    if (!claimNewEmail(lead, seen, emailBefore.get(lead))) continue;
+    ready.push(lead);
+  }
+  return { leads: ready, fromCache };
+}
+
 // Run the full search.
 // opts: { niches, states, limit, delayMs, noEnrich, cache }
 //   cache (optional): { get(query), set(query, elements) } for Overpass result reuse
@@ -140,56 +204,18 @@ export async function runSearch(opts, callbacks = {}) {
       step++;
       const stateName = stateNameFromIso(stateIso);
       let added = 0;
+      let fromCache = false;
       try {
-        // Ask Overpass for a bounded slice rather than every POI in the state:
-        // unnamed and duplicate entries get dropped, so over-fetch what's left
-        // to collect. Uncapped statewide queries routinely time out upstream.
         const perNicheLimit =
           Number.isFinite(opts.perNicheLimit) && opts.perNicheLimit > 0
             ? Math.floor(opts.perNicheLimit)
             : null;
         const remaining = Math.max(1, limit - leads.length);
         const room = perNicheLimit == null ? remaining : Math.min(remaining, perNicheLimit);
-        const query = buildQuery(stateIso, niche, {
-          maxElements: capForElements(room * CONTACTABLE_OVERFETCH),
-        });
-        const elements = await runQuery(query, { onLog, cache: opts.cache || null, isCancelled });
-        const rawLeads = elements
-          .map((el) => elementToLead(el, { niche: niche.key, nicheLabel: niche.label, stateIso }))
-          .filter(Boolean);
-        const fresh = dedupe(rawLeads, seen);
-        const emailBefore = new Map();
-        for (const lead of fresh) emailBefore.set(lead, normalizeEmail(lead.email));
-
-        const scrapeForEmail = [];
-        const scrapeForAdmission = [];
-        for (const lead of fresh) {
-          if (!(opts.scrapeContacts && lead.website && !emailBefore.get(lead))) continue;
-          if (isContactable(lead)) scrapeForEmail.push(lead);
-          else scrapeForAdmission.push(lead);
-        }
-
-        if (scrapeForEmail.length && !isCancelled()) {
-          await scrapeWebsites(scrapeForEmail, { onLog, onContactProgress, isCancelled });
-        }
-
-        if (opts.scrapeContacts && leads.length < limit && scrapeForAdmission.length && !isCancelled()) {
-          const slots = room * ADMISSION_SCRAPE_MULT;
-          const batch = scrapeForAdmission.slice(0, Math.min(slots, ADMISSION_SCRAPE_CAP));
-          await scrapeWebsites(batch, { onLog, onContactProgress, isCancelled });
-        }
-
-        // Emit only after emails are scraped, so a shared address collapses
-        // the batch before it is saved.
-        const ready = [];
-        for (const lead of fresh) {
-          if (leads.length >= limit) break;
-          if (perNicheLimit != null && ready.length >= perNicheLimit) break;
-          if (!isContactable(lead)) continue;
-          if (!claimNewEmail(lead, seen, emailBefore.get(lead))) continue;
-          leads.push(lead);
-          ready.push(lead);
-        }
+        const found = await searchNiche({ stateIso, niche, room, seen, opts, callbacks });
+        fromCache = found.fromCache;
+        const ready = found.leads;
+        leads.push(...ready);
         // The save endpoint accepts 500 leads per request.
         for (let i = 0; i < ready.length; i += 500) onLeads(ready.slice(i, i + 500));
 
@@ -208,7 +234,8 @@ export async function runSearch(opts, callbacks = {}) {
         total: leads.length,
         limit,
       });
-      if (delayMs > 0) await sleep(delayMs);
+      // A cache hit never touched Overpass, so there is nothing to be polite about.
+      if (delayMs > 0 && !fromCache) await sleep(delayMs);
     }
   }
 
@@ -247,43 +274,54 @@ export async function runSearch(opts, callbacks = {}) {
   // budget because each lead costs one SerpApi search.
   const findDM = typeof opts.findDecisionMakers === "function" ? opts.findDecisionMakers : null;
   if (findDM && leads.length) {
-    const budget =
-      Number.isFinite(opts.decisionMakerLimit) && opts.decisionMakerLimit > 0
-        ? opts.decisionMakerLimit
-        : leads.length;
-    // Priority: leads with both a website and phone are the most contactable,
-    // then website-only, then phone-only, then the rest.
-    const score = (l) => (l.website ? 2 : 0) + (l.phone ? 1 : 0);
-    const ordered = leads
-      .map((lead, idx) => ({ lead, idx }))
-      .sort((a, b) => score(b.lead) - score(a.lead) || a.idx - b.idx);
-    const targets = ordered.slice(0, budget).map((o) => o.lead);
-    onLog(`Decision-maker lookup: ${targets.length}/${leads.length} leads (SerpApi budget).`);
-    const limiter = pLimit(2);
-    let done = 0;
-    await Promise.all(
-      targets.map((lead) =>
-        limiter(async () => {
-          if (isCancelled()) return;
-          try {
-            const matches = await findDM({
-              name: lead.name,
-              city: lead.city,
-              state: lead.state,
-              website: lead.website,
-            });
-            lead.decisionMakers = matches;
-            lead.decisionMakerStatus = matches.length > 0 ? "found" : "none";
-          } catch {
-            lead.decisionMakerStatus = "error";
-          }
-          done++;
-          onDecisionMakerProgress({ done, total: targets.length });
-        })
-      )
-    );
-    onLog(`Decision-maker lookup complete (${done}/${targets.length} processed).`);
+    await lookupDecisionMakers(leads, findDM, opts.decisionMakerLimit, {
+      onLog,
+      onDecisionMakerProgress,
+      isCancelled,
+    });
   }
 
   return { leads, summary: summarize(leads) };
+}
+
+// Sets decisionMakers/decisionMakerStatus on up to `limit` leads (mutates them)
+// and returns the leads it looked up.
+export async function lookupDecisionMakers(leads, findDM, limit, callbacks = {}) {
+  const onLog = callbacks.onLog || (() => {});
+  const onDecisionMakerProgress = callbacks.onDecisionMakerProgress || (() => {});
+  const isCancelled = callbacks.isCancelled || (() => false);
+  const budget = Number.isFinite(limit) && limit > 0 ? limit : leads.length;
+  // Priority: leads with both a website and phone are the most contactable,
+  // then website-only, then phone-only, then the rest.
+  const score = (l) => (l.website ? 2 : 0) + (l.phone ? 1 : 0);
+  const ordered = leads
+    .map((lead, idx) => ({ lead, idx }))
+    .sort((a, b) => score(b.lead) - score(a.lead) || a.idx - b.idx);
+  const targets = ordered.slice(0, budget).map((o) => o.lead);
+  onLog(`Decision-maker lookup: ${targets.length}/${leads.length} leads (SerpApi budget).`);
+  const limiter = pLimit(2);
+  let done = 0;
+  await Promise.all(
+    targets.map((lead) =>
+      limiter(async () => {
+        if (isCancelled()) return;
+        try {
+          const matches = await findDM({
+            name: lead.name,
+            city: lead.city,
+            state: lead.state,
+            website: lead.website,
+          });
+          lead.decisionMakers = matches;
+          lead.decisionMakerStatus = matches.length > 0 ? "found" : "none";
+        } catch {
+          lead.decisionMakerStatus = "error";
+        }
+        done++;
+        onDecisionMakerProgress({ done, total: targets.length });
+      })
+    )
+  );
+  onLog(`Decision-maker lookup complete (${done}/${targets.length} processed).`);
+  return targets;
 }

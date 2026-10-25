@@ -1,5 +1,5 @@
 import { and, asc, eq, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
-import { db, schema } from "./db";
+import { db, schema, type Executor } from "./db";
 import { leadKey, type LeadLike } from "./leadKey";
 import { isContactable } from "@/src/contactable.js";
 import { dedupeKeys } from "@/src/parse.js";
@@ -112,7 +112,11 @@ function sqlList(values: string[]) {
 const locationExpr = sql`lower(regexp_replace(btrim(${schema.leads.name}), '[[:space:]]+', ' ', 'g')) || '|' || lower(regexp_replace(btrim(${schema.leads.city}), '[[:space:]]+', ' ', 'g')) || '|' || lower(regexp_replace(btrim(${schema.leads.state}), '[[:space:]]+', ' ', 'g'))`;
 
 // Earliest stored row for each email, phone, and location key in this batch.
-async function loadExistingMatches(userId: number, leads: unknown[]): Promise<Map<string, ExistingMatch>> {
+async function loadExistingMatches(
+  userId: number,
+  leads: unknown[],
+  dbx: Executor = db()
+): Promise<Map<string, ExistingMatch>> {
   const emails = new Set<string>();
   const phones = new Set<string>();
   const locations = new Set<string>();
@@ -136,7 +140,7 @@ async function loadExistingMatches(userId: number, leads: unknown[]): Promise<Ma
   if (locations.size) clauses.push(sql`${locationExpr} in (${sqlList([...locations])})`);
   if (!clauses.length) return new Map();
 
-  const found = await db()
+  const found = await dbx
     .select({
       id: schema.leads.id,
       leadKey: schema.leads.leadKey,
@@ -212,7 +216,8 @@ function foldByIdentity(rows: LeadInsert[], aliases: Map<string, Set<string>>): 
 export async function upsertLeads(
   userId: number,
   rawLeads: unknown[],
-  opts: { sourceSearchId?: number | null; saved?: boolean; via?: string } = {}
+  opts: { sourceSearchId?: number | null; saved?: boolean; via?: string } = {},
+  dbx: Executor = db()
 ): Promise<UpsertResult> {
   const pending: LeadInsert[] = [];
   for (const raw of rawLeads) {
@@ -224,7 +229,7 @@ export async function upsertLeads(
 
   const aliases = new Map<string, Set<string>>();
   let folded = foldByIdentity(pending, aliases);
-  const matches = await loadExistingMatches(userId, folded);
+  const matches = await loadExistingMatches(userId, folded, dbx);
   for (const row of folded) {
     const existing = earliestMatch(row, matches);
     if (!existing || existing.leadKey === row.leadKey) continue;
@@ -260,7 +265,7 @@ export async function upsertLeads(
 
   for (let i = 0; i < rows.length; i += UPSERT_CHUNK) {
     const chunk = rows.slice(i, i + UPSERT_CHUNK);
-    const returned = await db()
+    const returned = await dbx
       .insert(schema.leads)
       .values(chunk)
       .onConflictDoUpdate({
@@ -295,7 +300,7 @@ export async function upsertLeads(
       }
     }
     if (newIds.length) {
-      await db()
+      await dbx
         .insert(schema.leadActivities)
         .values(
           newIds.map((leadId) => ({
@@ -315,7 +320,11 @@ export async function upsertLeads(
 // location match wins, so a second OpenStreetMap entry for the same business
 // points at the earliest row. A lead with no shared identity still resolves by
 // its stored key when that row exists.
-export async function crmIdsForLeads(userId: number, rawLeads: unknown[]): Promise<Map<string, number>> {
+export async function crmIdsForLeads(
+  userId: number,
+  rawLeads: unknown[],
+  dbx: Executor = db()
+): Promise<Map<string, number>> {
   const keys: string[] = [];
   const leads: unknown[] = [];
   for (const raw of rawLeads) {
@@ -327,7 +336,7 @@ export async function crmIdsForLeads(userId: number, rawLeads: unknown[]): Promi
   }
 
   const ids = new Map<string, number>();
-  const matches = await loadExistingMatches(userId, leads);
+  const matches = await loadExistingMatches(userId, leads, dbx);
   for (let i = 0; i < leads.length; i++) {
     const match = earliestMatch(leads[i], matches);
     if (match) ids.set(keys[i], match.id);
@@ -337,7 +346,7 @@ export async function crmIdsForLeads(userId: number, rawLeads: unknown[]): Promi
   for (let i = 0; i < missing.length; i += 1000) {
     const slice = missing.slice(i, i + 1000);
     if (!slice.length) continue;
-    const found = await db()
+    const found = await dbx
       .select({ id: schema.leads.id, leadKey: schema.leads.leadKey })
       .from(schema.leads)
       .where(and(eq(schema.leads.userId, userId), inArray(schema.leads.leadKey, slice)));

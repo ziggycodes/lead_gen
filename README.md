@@ -17,9 +17,11 @@ Each account has its own lead pipeline at `/app`:
   changes, bulk status/save/export/delete.
 - **Lead drawer** — edit contact details, set status and a follow-up date, save/star,
   add notes, look up decision makers, and see the full activity timeline.
-- **Find leads tab** — the search flow. Results are upserted into the CRM (deduped by
-  name + city + state), so re-running a search never duplicates leads and never
-  overwrites details you edited by hand.
+- **Find leads** — starts a background search (see below). The server upserts results
+  into the CRM as it finds them (deduped by email, phone, and name + city + state), so
+  re-running a search never duplicates leads and never overwrites details you edited
+  by hand. A popup reports the result when the search finishes, even if the user
+  left and came back later.
 - Pipeline stages: New, Contacted, Replied, Qualified, Won, Lost, Not interested
   (`lib/crm.ts`).
 - On first load after upgrading, past search results and starred leads are imported
@@ -63,15 +65,29 @@ CRM exports also include Status, Saved, Contact Name, and Follow Up.
 - **Next.js 16** (App Router, TypeScript, Tailwind v4)
 - **Clerk** — authentication (free tier; runs keyless in dev)
 - **Postgres + Drizzle** — users, usage/quota, searches, CRM leads/notes/activity, Overpass cache (free tier: Neon/Supabase)
-- **Paystack** — NGN credit-pack payments (test keys in dev)
+- **Inngest** — background search jobs (each niche is a short step under Vercel's 300s limit)
+- **Paystack** — NGN credit-pack payments (test keys in dev). Purchases are recorded but credits no longer gate searches.
 
 ### Business rules
 
-- Every account gets **50 free leads** (lifetime trial).
-- **1,000 leads/day** fair-use cap for all accounts.
-- Credit packs: Starter ₦500 / 150 leads, Standard ₦1,500 / 500 leads, Pro ₦3,000 / 1,200 leads. Credits never expire.
-- Quotas use an atomic **reserve → run → reconcile** flow, so parallel searches can't overspend, and failed runs don't burn credits.
+- Free accounts get **20 new leads a day**, from a mix of niches in one random state.
+  Only leads newly added to the CRM count; businesses already in it don't.
+- Premium accounts (granted on `/admin`) pick niches, states, and a limit, with no automatic daily cap.
+- Admins can set a per-account daily cap on contact emails, and flag or restrict accounts.
 - Overpass responses are **cached for 7 days** and shared across users.
+
+### How a search runs
+
+1. `POST /api/search` validates the request, inserts a `queued` row in `searches`, and
+   sends an Inngest event. It returns at once.
+2. The Inngest function (`lib/inngest/searchJob.ts`) splits the search into state/niche
+   steps and runs 3 at a time (`SEARCH_PARALLEL_NICHES`). Each step queries Overpass,
+   scrapes websites, and saves its leads under a row lock on the job
+   (`saveStep` in `lib/searchJobs.ts`), so the daily cap and dedupe stay exact.
+3. The browser polls `GET /api/searches/:id`. Closing the panel or the tab changes nothing.
+4. The job is marked finished, then decision makers are looked up for its new leads.
+5. A job with no heartbeat for 3 minutes is marked failed, so nobody stays stuck on
+   "search running".
 - Optional Nigeria-only gate via `ALLOWED_COUNTRIES=NG` (needs a country header from your host/CDN, e.g. Cloudflare).
 
 ### Setup
@@ -80,11 +96,12 @@ CRM exports also include Status, Saved, Contact Name, and Follow Up.
 npm install
 copy .env.example .env    # then fill in values (see below)
 
-# Create the database tables (needs DATABASE_URL)
-npm run db:push
+# Create the database tables (drizzle-kit reads DATABASE_URL from .env.local)
+npm run db:migrate
 
-# Run the app
+# Run the app, plus the Inngest dev server in a second terminal (set INNGEST_DEV=1)
 npm run dev               # http://localhost:3000
+npx inngest-cli@latest dev -u http://localhost:3000/api/inngest
 ```
 
 Required env vars (see `.env.example` for the full list):
@@ -99,12 +116,16 @@ Required env vars (see `.env.example` for the full list):
 For Paystack webhooks, set the webhook URL in the Paystack dashboard to
 `https://<your-domain>/api/webhooks/paystack`.
 
-### Deploying (Railway)
+### Deploying (Vercel)
 
-Searches stream for several minutes, so deploy on a host with persistent processes
-(Railway/Render), not serverless. On Railway: create a project from this repo, add a
-Postgres plugin (or use Neon), set the env vars, and it builds and runs `npm run build`
-/ `npm start` automatically. Health check: `GET /api/health`.
+1. Install the Inngest integration from the Vercel Marketplace on this project. It sets
+   `INNGEST_EVENT_KEY` and `INNGEST_SIGNING_KEY`.
+2. Run `npm run db:migrate` against the production database **before** deploying new
+   migrations.
+3. Push to `master`. In the Inngest dashboard, check the app is synced at
+   `https://<your-domain>/api/inngest`.
+
+Health check: `GET /api/health`.
 
 ## CLI usage (free, no account)
 
@@ -141,7 +162,9 @@ but uses the same key for decision-maker lookups.
 
 ```
 app/               # Next.js App Router (landing, dashboard, API routes)
-  api/search/      # SSE search endpoint (auth + quota + cache), upserts into the CRM
+  api/search/      # queue a background search (returns at once)
+  api/searches/    # search history, job status/cancel, unseen result popup
+  api/inngest/     # Inngest endpoint that runs search steps
   api/leads/       # CRM: list, bulk update/delete, per-lead detail, notes, export
   api/billing/     # Paystack checkout
   api/webhooks/    # Paystack webhook (HMAC-verified)

@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, CircleAlert, LoaderCircle, MapPin, Plus, Search, X } from "lucide-react";
-import { importLeads } from "./crmApi";
-import type { Lead, SearchHistoryItem, Usage } from "./types";
+import { useEffect, useMemo, useState } from "react";
+import { CircleAlert, LoaderCircle, MapPin, Plus, Search, X } from "lucide-react";
+import type { SearchJob } from "./types";
+import type { SearchInput } from "./useSearchJob";
 
 interface Niche {
   key: string;
@@ -23,55 +23,28 @@ export interface FindPrefill {
 
 const DEFAULT_NICHES = ["dentist", "salon", "plumber", "restaurant"];
 
-export type SearchArrival = {
-  found: number;
-  inserted: number;
-  searchId: number | null;
-  stopped: boolean;
-  finished: boolean;
-  notice?: string | null;
-};
-
-export function searchSummary(arrival: Pick<SearchArrival, "found" | "inserted" | "stopped">): string {
-  if (arrival.stopped && arrival.found === 0) return "Search stopped. Nothing new was added.";
-  if (arrival.stopped) {
-    const added = arrival.inserted === 1 ? "1 new lead" : `${arrival.inserted} new leads`;
-    return arrival.inserted > 0
-      ? `Search stopped. ${added} added from ${arrival.found} found.`
-      : `Search stopped. ${arrival.found} found, already in your CRM.`;
-  }
-  if (arrival.found === 0) return "Search finished. No contactable businesses this time.";
-  if (arrival.inserted === 0) {
-    return `Search finished. ${arrival.found} found, already in your CRM.`;
-  }
-  if (arrival.inserted === arrival.found) {
-    return arrival.inserted === 1
-      ? "Search finished. 1 new lead added."
-      : `Search finished. ${arrival.inserted} new leads added.`;
-  }
-  return `Search finished. ${arrival.inserted} new of ${arrival.found} found. The rest were already in your CRM.`;
-}
-
+// The search itself runs on the server (see useSearchJob). This sheet picks what
+// to search and shows progress; closing it or leaving the page loses nothing.
 export function FindSheet({
   open,
   onOpen,
   prefill,
   prefillKey,
   onClose,
-  onUsage,
-  onImported,
-  onArrival,
-  onFinished,
+  job,
+  running,
+  onStart,
+  onStop,
 }: {
   open: boolean;
   onOpen: () => void;
   prefill: FindPrefill | null;
   prefillKey: number;
   onClose: () => void;
-  onUsage: (usage: Usage) => void;
-  onImported: () => void;
-  onArrival: (arrival: SearchArrival) => void;
-  onFinished: () => void;
+  job: SearchJob | null;
+  running: boolean;
+  onStart: (input: SearchInput) => Promise<string | null>;
+  onStop: () => void;
 }) {
   const [niches, setNiches] = useState<Niche[]>([]);
   const [states, setStates] = useState<StateOpt[]>([]);
@@ -82,19 +55,8 @@ export function FindSheet({
   const [stateQuery, setStateQuery] = useState("");
   const [nichePickerOpen, setNichePickerOpen] = useState(false);
   const [statePickerOpen, setStatePickerOpen] = useState(false);
-  const [running, setRunning] = useState(false);
-  const [progress, setProgress] = useState<{ step: number; totalSteps: number; total: number } | null>(null);
-  const [statusLine, setStatusLine] = useState("");
+  const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<SearchArrival | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
-  const chainRef = useRef(Promise.resolve());
-  const searchIdRef = useRef<number | null>(null);
-  const noticeRef = useRef<string | null>(null);
-  const searchIdReady = useRef<Promise<number | null>>(Promise.resolve(null));
-  const insertedRef = useRef(0);
-  const foundRef = useRef(0);
-  const mixRef = useRef("");
   const [premium, setPremium] = useState<boolean | null>(null);
   const [accountError, setAccountError] = useState<string | null>(null);
 
@@ -135,11 +97,11 @@ export function FindSheet({
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !running) onClose();
+      if (e.key === "Escape") onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, running, onClose]);
+  }, [open, onClose]);
 
   const nicheByKey = useMemo(() => {
     const map = new Map<string, Niche>();
@@ -170,169 +132,34 @@ export function FindSheet({
     });
   }, [states, selectedStates, stateQuery]);
 
-  const enqueue = (batch: Lead[]) => {
-    if (!batch.length) return;
-    chainRef.current = chainRef.current
-      .then(async () => {
-        if (searchIdRef.current == null) searchIdRef.current = await searchIdReady.current;
-        const json = await importLeads(batch, searchIdRef.current);
-        insertedRef.current += json.inserted;
-        onArrival({
-          found: foundRef.current,
-          inserted: insertedRef.current,
-          searchId: searchIdRef.current,
-          stopped: false,
-          finished: false,
-        });
-        onImported();
-      })
-      .catch((err: Error) => setError(err.message));
-  };
-
   async function run() {
-    if (premium === null) return;
+    if (premium === null || running || starting) return;
     if (premium && selectedNiches.size === 0) {
       setError("Pick at least one niche.");
       return;
     }
     setError(null);
-    setResult(null);
-    setProgress(null);
-    setStatusLine("Starting search…");
-    mixRef.current = "";
-    setRunning(true);
-    insertedRef.current = 0;
-    foundRef.current = 0;
-    onArrival({ found: 0, inserted: 0, searchId: null, stopped: false, finished: false });
-    searchIdRef.current = null;
-    noticeRef.current = null;
-    searchIdReady.current = Promise.resolve(null);
-    chainRef.current = Promise.resolve();
-
-    const params = new URLSearchParams();
-    if (premium) {
-      params.set("niches", Array.from(selectedNiches).join(","));
-      params.set("states", selectedStates.size ? Array.from(selectedStates).join(",") : "US");
-      params.set("limit", String(limit));
-    }
-
-    const controller = new AbortController();
-    abortRef.current = controller;
-    let stopped = false;
-    let failed = false;
-
-    try {
-      const res = await fetch(`/api/search?${params}`, { signal: controller.signal });
-      if (!res.ok) {
-        const json = await res.json().catch(() => ({}));
-        throw new Error(json.error || `Search failed (${res.status})`);
-      }
-      if (!res.body) throw new Error("No response stream.");
-
-      searchIdReady.current = fetch("/api/searches")
-        .then((r) => (r.ok ? r.json() : { searches: [] }))
-        .then((json) => {
-          const runningSearch = ((json.searches || []) as SearchHistoryItem[]).find(
-            (s) => s.status === "running"
-          );
-          return runningSearch?.id ?? null;
-        })
-        .catch(() => null);
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      const handleEvent = (event: string, data: Record<string, unknown>) => {
-        if (event === "meta") {
-          const stateName = typeof data.stateName === "string" ? data.stateName : "";
-          if (stateName) {
-            mixRef.current = stateName;
-            setStatusLine(`A mix of businesses in ${stateName}.`);
-          }
-        } else if (event === "progress") {
-          const p = data as { step: number; totalSteps: number; total: number };
-          setProgress(p);
-          const mix = mixRef.current ? `A mix of businesses in ${mixRef.current}. ` : "";
-          setStatusLine(`${mix}Step ${p.step} of ${p.totalSteps} · ${p.total} leads`);
-        } else if (event === "leads") {
-          const batch = (data.leads as Lead[]) || [];
-          foundRef.current += batch.length;
-          enqueue(batch);
-        } else if (event === "contact") {
-          setStatusLine(`Reading websites… ${data.done}/${data.total}`);
-        } else if (event === "decision") {
-          setStatusLine(`Looking up decision makers… ${data.done}/${data.total}`);
-        } else if (event === "done") {
-          if (typeof data.searchId === "number") searchIdRef.current = data.searchId;
-          if (typeof data.notice === "string" && data.notice) noticeRef.current = data.notice;
-          const summary = data.summary as { total?: number } | undefined;
-          const finishedLeads = (data.leads as Lead[]) || [];
-          foundRef.current = typeof summary?.total === "number" ? summary.total : finishedLeads.length;
-          if (data.usage) onUsage(data.usage as Usage);
-          enqueue(finishedLeads);
-        } else if (event === "error") {
-          failed = true;
-          setError(String(data.message));
+    setStarting(true);
+    const input: SearchInput = premium
+      ? {
+          niches: Array.from(selectedNiches).join(","),
+          states: selectedStates.size ? Array.from(selectedStates).join(",") : "US",
+          limit,
         }
-      };
-
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const chunks = buffer.split("\n\n");
-        buffer = chunks.pop() || "";
-        for (const chunk of chunks) {
-          const eventMatch = chunk.match(/^event: (.+)$/m);
-          const dataMatch = chunk.match(/^data: (.+)$/m);
-          if (eventMatch && dataMatch) {
-            try {
-              handleEvent(eventMatch[1], JSON.parse(dataMatch[1]));
-            } catch {
-              /* skip malformed chunk */
-            }
-          }
-        }
-      }
-    } catch (err) {
-      if ((err as Error).name === "AbortError") {
-        stopped = true;
-      } else {
-        failed = true;
-        setError((err as Error).message);
-      }
-    } finally {
-      const wasStopped = stopped;
-      const wasFailed = failed;
-      chainRef.current = chainRef.current.finally(() => {
-        const outcome: SearchArrival = {
-          found: foundRef.current,
-          inserted: insertedRef.current,
-          searchId: searchIdRef.current,
-          stopped: wasStopped,
-          finished: true,
-          notice: noticeRef.current,
-        };
-        setRunning(false);
-        abortRef.current = null;
-        setProgress(null);
-        setStatusLine("");
-        if (wasFailed && outcome.found === 0 && outcome.inserted === 0) {
-          setResult(null);
-        } else {
-          setResult(outcome);
-          onArrival(outcome);
-        }
-        onFinished();
-      });
-    }
+      : {};
+    const message = await onStart(input);
+    setStarting(false);
+    if (message) setError(message);
   }
 
-  function stop() {
-    abortRef.current?.abort();
-  }
-
+  const progress = running && job ? job.progress : null;
+  const statusLine = !progress
+    ? ""
+    : job?.status === "queued"
+      ? "Starting search…"
+      : job?.params?.stateLabel
+        ? `A mix of businesses in ${job.params.stateLabel}.`
+        : progress.statusLine || "Searching…";
   const progressPct = progress
     ? Math.min(100, Math.round((progress.step / Math.max(progress.totalSteps, 1)) * 100))
     : 0;
@@ -532,26 +359,19 @@ export function FindSheet({
             <div className="space-y-3 border-t border-line px-5 py-4">
               {progress && (
                 <div>
-                  <div className="mb-1 flex justify-between text-xs text-muted">
-                    <span>{statusLine}</span>
-                    <span>{progress.total} leads</span>
+                  <div className="mb-1 flex justify-between gap-3 text-xs text-muted">
+                    <span className="min-w-0 truncate">{statusLine}</span>
+                    <span className="shrink-0">{progress.saved} saved</span>
                   </div>
                   <div className="h-1.5 overflow-hidden rounded-full bg-line">
-                    <div className="h-full rounded-full bg-accent" style={{ width: `${progressPct}%` }} />
+                    <div
+                      className="h-full rounded-full bg-accent transition-[width] duration-500"
+                      style={{ width: `${Math.max(progressPct, 4)}%` }}
+                    />
                   </div>
-                </div>
-              )}
-              {!progress && statusLine && <p className="text-xs text-muted">{statusLine}</p>}
-              {result && !running && (
-                <div className="flex items-start gap-2 rounded-xl bg-accent/25 px-3 py-2.5 text-sm text-ink">
-                  <Check className="mt-0.5 h-4 w-4 shrink-0" />
-                  <div>
-                    <p className="font-semibold">{searchSummary(result)}</p>
-                    {result.notice ? <p className="mt-1 text-ink/80">{result.notice}</p> : null}
-                    {result.searchId != null && result.inserted > 0 && (
-                      <p className="mt-0.5 text-xs text-ink/70">They are in the list. Close this panel to work them.</p>
-                    )}
-                  </div>
+                  <p className="mt-2 text-xs text-muted">
+                    You can close this panel or leave the page. Leads are saved as they are found.
+                  </p>
                 </div>
               )}
               {error && (
@@ -562,7 +382,7 @@ export function FindSheet({
               )}
               <div className="flex items-center justify-end gap-2">
                 <button
-                  onClick={stop}
+                  onClick={onStop}
                   disabled={!running}
                   className="rounded-full px-3 py-2 text-sm font-medium text-muted hover:text-danger disabled:opacity-0"
                 >
@@ -570,11 +390,15 @@ export function FindSheet({
                 </button>
                 <button
                   onClick={run}
-                  disabled={running || premium === null || Boolean(accountError)}
+                  disabled={running || starting || premium === null || Boolean(accountError)}
                   className="flex items-center gap-2 rounded-full bg-accent px-5 py-2.5 text-sm font-semibold text-ink disabled:opacity-40"
                 >
-                  {running ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-                  {running ? "Searching" : "Find leads"}
+                  {running || starting ? (
+                    <LoaderCircle className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Search className="h-4 w-4" />
+                  )}
+                  {running || starting ? "Searching" : "Find leads"}
                 </button>
               </div>
             </div>
@@ -588,24 +412,10 @@ export function FindSheet({
           className="fixed bottom-4 left-4 z-30 flex max-w-sm items-center gap-3 rounded-full border border-line bg-panel px-4 py-2 text-sm shadow-lg"
         >
           <LoaderCircle className="h-4 w-4 animate-spin text-accent" />
-          <span className="truncate text-fg">{statusLine || "Searching…"}</span>
+          <span className="truncate text-fg">
+            Searching… {progress ? `${progress.saved} saved` : ""}
+          </span>
         </button>
-      )}
-
-      {!open && !running && result && (
-        <div className="fixed bottom-4 left-4 z-30 flex max-w-sm items-center gap-3 rounded-full border border-accent bg-panel px-4 py-2 text-sm shadow-lg">
-          <Check className="h-4 w-4 shrink-0 text-accent" />
-          <button onClick={onOpen} className="truncate text-left font-medium text-fg">
-            {searchSummary(result)}
-          </button>
-          <button
-            onClick={() => setResult(null)}
-            className="grid h-6 w-6 shrink-0 place-items-center rounded-full text-muted hover:bg-oat hover:text-fg"
-            aria-label="Dismiss search result"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
-        </div>
       )}
     </>
   );

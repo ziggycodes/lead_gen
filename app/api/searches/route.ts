@@ -6,15 +6,25 @@ import { errorResponse } from "@/lib/apiError";
 import { leadKey, type LeadLike } from "@/lib/leadKey";
 import { crmIdsForLeads } from "@/lib/leads";
 import { filterContactable } from "@/src/contactable.js";
+import { activeJob, toJobView, unseenFinishedJob } from "@/lib/searchJobs";
 
 export const dynamic = "force-dynamic";
 
 // GET /api/searches           -> recent search history (metadata only, no blob)
 // GET /api/searches?id=123    -> the stored leads for one past search, tagged
 //                                with their CRM ids where they exist
+// GET /api/searches?active=1  -> the running search, plus a finished one whose
+//                                result popup the user hasn't seen
 export async function GET(req: NextRequest) {
   try {
     const user = await ensureUser();
+    if (req.nextUrl.searchParams.get("active")) {
+      const [active, unseen] = await Promise.all([activeJob(user.id), unseenFinishedJob(user.id)]);
+      return NextResponse.json({
+        active: active ? toJobView(active) : null,
+        unseen: unseen ? toJobView(unseen) : null,
+      });
+    }
     const id = req.nextUrl.searchParams.get("id");
 
     if (id) {

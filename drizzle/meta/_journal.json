@@ -50,6 +50,13 @@
       "when": 1792591340479,
       "tag": "0006_user_name",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1792879367782,
+      "tag": "0007_search_jobs",
+      "breakpoints": true
     }
   ]
 }

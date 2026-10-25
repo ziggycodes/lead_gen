@@ -150,9 +150,18 @@ async function electMirror(onLog) {
 // Run a query string against the Overpass API, rotating mirrors on failure.
 // Optional `cache` ({ get(query), set(query, elements) }) lets callers (e.g. the
 // web app) share results across users and skip upstream calls entirely.
+// Web jobs pass a shorter `requestTimeoutMs`/`deadlineMs` so one slow niche is
+// skipped instead of holding a background step for minutes.
 export async function runQuery(
   query,
-  { retries = MIRRORS.length * 2, onLog = () => {}, cache = null, isCancelled = () => false } = {}
+  {
+    retries = MIRRORS.length * 2,
+    requestTimeoutMs = REQUEST_TIMEOUT_MS,
+    deadlineMs = QUERY_DEADLINE_MS,
+    onLog = () => {},
+    cache = null,
+    isCancelled = () => false,
+  } = {}
 ) {
   if (cache) {
     try {
@@ -170,7 +179,7 @@ export async function runQuery(
   // that hangs. After that the cooldown map already knows who is healthy.
   if (!preferredMirror && cooldownUntil.size === 0) await electMirror(onLog);
 
-  const deadline = Date.now() + QUERY_DEADLINE_MS;
+  const deadline = Date.now() + deadlineMs;
   // Every mirror gets a turn before any of them is retried. Without this a
   // mirror that fails fast keeps sorting ahead of peers cooling down longer,
   // and the retries all land on the endpoint that just rejected us.
@@ -187,7 +196,7 @@ export async function runQuery(
     const endpoint = order[0];
     tried.add(endpoint);
     try {
-      const elements = await postQuery(endpoint, query, REQUEST_TIMEOUT_MS);
+      const elements = await postQuery(endpoint, query, requestTimeoutMs);
       preferredMirror = endpoint;
       cooldownUntil.delete(endpoint);
       if (cache) {

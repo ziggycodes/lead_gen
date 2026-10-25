@@ -12,6 +12,8 @@ const isGateExempt = createRouteMatcher([
   "/waitlist(.*)",
   "/api/webhooks(.*)",
   "/api/health(.*)",
+  // Inngest calls this from its own servers to run background searches.
+  "/api/inngest(.*)",
 ]);
 
 export default clerkMiddleware(async (auth, req) => {

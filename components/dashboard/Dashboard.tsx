@@ -9,7 +9,9 @@ import { LeadDrawer } from "./LeadDrawer";
 import { MailboxesView } from "./MailboxesView";
 import { AppShell } from "./AppShell";
 import { Sidebar, type WorkbenchView } from "./Sidebar";
-import { FindSheet, searchSummary, type FindPrefill, type SearchArrival } from "./FindSheet";
+import { FindSheet, type FindPrefill } from "./FindSheet";
+import { SearchDonePopup } from "./SearchDonePopup";
+import { useSearchJob } from "./useSearchJob";
 import { EMPTY_FILTERS, type LeadFilters } from "./leadFilters";
 import { isFollowUpDue } from "./format";
 
@@ -26,7 +28,6 @@ export function Dashboard() {
   const [prefill, setPrefill] = useState<FindPrefill | null>(null);
   const [prefillKey, setPrefillKey] = useState(0);
   const [historyKey, setHistoryKey] = useState(0);
-  const [arrival, setArrival] = useState<SearchArrival | null>(null);
   const [view, setView] = useState<WorkbenchView>("table");
   const [conversationFocus, setConversationFocus] = useState<string | null>(null);
   const [notices, setNotices] = useState<{ id: number; body: string }[]>([]);
@@ -95,6 +96,18 @@ export function Dashboard() {
     loadLeads();
     loadNotices();
   }, [refreshUsage, loadLeads, loadNotices]);
+
+  const search = useSearchJob({
+    onSaved: () => {
+      loadLeads({ silent: true });
+      refreshUsage();
+    },
+    onFinished: () => {
+      refreshUsage();
+      loadLeads({ silent: true });
+      setHistoryKey((k) => k + 1);
+    },
+  });
 
   const mergeLeads = useCallback((updated: CrmLead[]) => {
     if (!updated.length) return;
@@ -226,29 +239,6 @@ export function Dashboard() {
           </>
         }
       >
-        {arrival && (arrival.finished || arrival.inserted > 0) && (
-          <div className="flex flex-wrap items-center gap-3 border-b border-line bg-accent/20 px-4 py-2 text-sm text-ink">
-            <span>{arrival.finished ? searchSummary(arrival) : `${arrival.inserted} new from this search`}</span>
-            {arrival.notice ? <span className="max-w-xl">{arrival.notice}</span> : null}
-            {arrival.searchId != null && arrival.inserted > 0 && (
-              <button
-                onClick={() => {
-                  setWorkbenchView("table");
-                  setFilters({ ...EMPTY_FILTERS, source: arrival.searchId });
-                }}
-                className="font-semibold underline-offset-2 hover:underline"
-              >
-                Show them
-              </button>
-            )}
-            <button
-              onClick={() => setArrival(null)}
-              className="ml-auto text-xs font-medium text-ink/70 hover:text-ink"
-            >
-              Dismiss
-            </button>
-          </div>
-        )}
         {view === "mailboxes" ? (
           <MailboxesView />
         ) : view === "conversations" ? (
@@ -276,15 +266,24 @@ export function Dashboard() {
         prefill={prefill}
         prefillKey={prefillKey}
         onClose={() => setFindOpen(false)}
-        onUsage={setUsage}
-        onImported={() => loadLeads({ silent: true })}
-        onArrival={(next) => setArrival(next.finished || next.inserted > 0 ? next : null)}
-        onFinished={() => {
-          refreshUsage();
-          loadLeads({ silent: true });
-          setHistoryKey((k) => k + 1);
-        }}
+        job={search.job}
+        running={search.running}
+        onStart={search.start}
+        onStop={search.cancel}
       />
+      {search.finished && (
+        <SearchDonePopup
+          job={search.finished}
+          onView={() => {
+            const id = search.finished?.id ?? null;
+            setFindOpen(false);
+            setWorkbenchView("table");
+            setFilters({ ...EMPTY_FILTERS, source: id });
+            search.dismiss();
+          }}
+          onDismiss={search.dismiss}
+        />
+      )}
     </>
   );
 }

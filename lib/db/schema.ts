@@ -67,19 +67,33 @@ export const accountNotices = pgTable(
   (t) => [index("account_notices_user_idx").on(t.userId)]
 );
 
-export const searches = pgTable("searches", {
-  id: serial("id").primaryKey(),
-  userId: integer("user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  status: text("status").notNull().default("running"), // running | completed | failed | cancelled
-  params: jsonb("params"),
-  leadCount: integer("lead_count").notNull().default(0),
-  resultBlob: jsonb("result_blob"),
-  error: text("error"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  completedAt: timestamp("completed_at", { withTimezone: true }),
-});
+// A search is a background job. The worker saves leads into `leads` as it goes,
+// so leaving the page never loses them.
+export const searches = pgTable(
+  "searches",
+  {
+    id: serial("id").primaryKey(),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    status: text("status").notNull().default("running"), // queued | running | completed | failed | cancelled
+    params: jsonb("params"),
+    // leadCount counts leads this search found; progress.saved counts new CRM rows.
+    leadCount: integer("lead_count").notNull().default(0),
+    resultBlob: jsonb("result_blob"),
+    progress: jsonb("progress"),
+    // Dedupe keys already claimed by this search, so parallel steps don't repeat a business.
+    seenKeys: jsonb("seen_keys"),
+    error: text("error"),
+    heartbeatAt: timestamp("heartbeat_at", { withTimezone: true }),
+    cancelRequested: boolean("cancel_requested").notNull().default(false),
+    // Set when the user has seen the "search finished" popup.
+    completionSeenAt: timestamp("completion_seen_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+  },
+  (t) => [index("searches_user_created_idx").on(t.userId, t.createdAt)]
+);
 
 // Legacy star list, superseded by `leads.saved`. Kept only as a backfill source.
 export const savedLeads = pgTable(

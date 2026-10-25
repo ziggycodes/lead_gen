@@ -70,6 +70,28 @@ export interface Usage {
   totalConsumed: number;
 }
 
+// Mirrors `SearchJobView` from lib/searchJobs.ts.
+export interface SearchJob {
+  id: number;
+  status: "queued" | "running" | "completed" | "failed" | "cancelled";
+  params: { mode?: "regular" | "premium"; stateLabel?: string | null } | null;
+  progress: {
+    step: number;
+    totalSteps: number;
+    found: number;
+    saved: number;
+    statusLine: string;
+    notice: string | null;
+  };
+  error: string | null;
+  createdAt: string;
+  completedAt: string | null;
+}
+
+export function isSearchActive(job: SearchJob | null): boolean {
+  return job != null && (job.status === "queued" || job.status === "running");
+}
+
 export interface SearchHistoryItem {
   id: number;
   status: string;
