@@ -11,6 +11,7 @@ import {
   type SearchUnit,
 } from "../searchJobs";
 import { overpassDbCache } from "../overpassCache";
+import { notifyUser, type PushPayload } from "../push";
 import { findDecisionMakers, hasDecisionMakerLookup } from "../decisionMakers";
 import { lookupDecisionMakers, resolveNiches, searchNiche } from "@/src/runSearch.js";
 import { stateNameFromIso } from "@/src/usStates.js";
@@ -66,6 +67,43 @@ async function runUnit(
   }
 }
 
+const RUN_FAILED = "The search hit an error. Please try again.";
+
+interface FinishedSearch {
+  id: number;
+  userId: number;
+  status: string;
+  error: string | null;
+  saved: number;
+}
+
+function toFinished(row: Awaited<ReturnType<typeof finishJob>>): FinishedSearch | null {
+  if (!row) return null;
+  const saved = Number((row.progress as { saved?: number } | null)?.saved) || 0;
+  return { id: row.id, userId: row.userId, status: row.status, error: row.error, saved };
+}
+
+// Cancelled searches were stopped by the user, so they get no notification.
+function finishedNotification(search: FinishedSearch): PushPayload | null {
+  const base = { url: "/app", tag: `search-${search.id}` };
+  if (search.status === "completed") {
+    const body = search.saved
+      ? `${search.saved} new lead${search.saved === 1 ? "" : "s"} added to your CRM.`
+      : "No new leads this time. Try other niches or states.";
+    return { ...base, title: "Your search is done", body };
+  }
+  if (search.status === "failed") {
+    return { ...base, title: "Your search stopped", body: search.error || RUN_FAILED };
+  }
+  return null;
+}
+
+async function notifyFinished(search: FinishedSearch | null) {
+  const payload = search && finishedNotification(search);
+  if (!search || !payload) return 0;
+  return notifyUser(search.userId, payload);
+}
+
 async function runDecisionMakers(searchId: number): Promise<number> {
   const limit = Number(process.env.DECISION_MAKER_MAX_PER_SEARCH) || 25;
   const rows = await leadsNeedingDecisionMakers(searchId, limit);
@@ -85,7 +123,10 @@ export const searchJob = inngest.createFunction(
     onFailure: async ({ event, error }) => {
       const searchId = Number(event.data.event.data?.searchId);
       console.error(`[search ${searchId}] run failed:`, error.message);
-      if (searchId) await finishJob(searchId, "The search hit an error. Please try again.");
+      if (!searchId) return;
+      const search = toFinished(await finishJob(searchId, RUN_FAILED));
+      // finishJob returns the old row when the search had already finished; only announce this failure.
+      if (search?.status === "failed" && search.error === RUN_FAILED) await notifyFinished(search);
     },
   },
   async ({ event, step }) => {
@@ -105,7 +146,10 @@ export const searchJob = inngest.createFunction(
     }
 
     // Finish before the decision-maker pass so the user sees their leads right away.
-    const status = await step.run("finish", async () => (await finishJob(searchId))?.status ?? null);
+    const finished = await step.run("finish", async () => toFinished(await finishJob(searchId)));
+    const status = finished?.status ?? null;
+    // Its own step so a retry of a later step doesn't send it twice.
+    await step.run("notify", () => notifyFinished(finished));
     if (status !== "failed" && hasDecisionMakerLookup()) {
       await step.run("decision-makers", () => runDecisionMakers(searchId));
     }

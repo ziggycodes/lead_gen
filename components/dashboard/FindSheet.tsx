@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { CircleAlert, LoaderCircle, MapPin, Plus, Search, X } from "lucide-react";
 import type { SearchJob } from "./types";
 import type { SearchInput } from "./useSearchJob";
@@ -35,6 +35,7 @@ export function FindSheet({
   running,
   onStart,
   onStop,
+  notifyPrompt,
 }: {
   open: boolean;
   onOpen: () => void;
@@ -45,6 +46,7 @@ export function FindSheet({
   running: boolean;
   onStart: (input: SearchInput) => Promise<string | null>;
   onStop: () => void;
+  notifyPrompt?: ReactNode;
 }) {
   const [niches, setNiches] = useState<Niche[]>([]);
   const [states, setStates] = useState<StateOpt[]>([]);
@@ -372,6 +374,7 @@ export function FindSheet({
                   <p className="mt-2 text-xs text-muted">
                     You can close this panel or leave the page. Leads are saved as they are found.
                   </p>
+                  {notifyPrompt ? <div className="mt-3">{notifyPrompt}</div> : null}
                 </div>
               )}
               {error && (
