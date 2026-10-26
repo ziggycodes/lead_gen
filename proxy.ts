@@ -19,10 +19,21 @@ const isGateExempt = createRouteMatcher([
 // Only session tokens minted for these origins are accepted in production, so
 // another app on a nocodeziggy.com subdomain can't create LeadScout sessions.
 // Previews and local dev use the Clerk development instance and stay open.
-const PRODUCTION_ORIGINS = ["https://leadscout.nocodeziggy.com"];
-const authorizedParties = process.env.VERCEL_ENV === "production" ? PRODUCTION_ORIGINS : undefined;
+const PRODUCTION_ORIGIN = "https://leadscout.nocodeziggy.com";
+const PRODUCTION_ORIGINS = [PRODUCTION_ORIGIN];
+const isProduction = process.env.VERCEL_ENV === "production";
+const authorizedParties = isProduction ? PRODUCTION_ORIGINS : undefined;
+
+const isApiRoute = createRouteMatcher(["/api(.*)"]);
 
 export default clerkMiddleware(async (auth, req) => {
+  // Production served on any other host (lead-gen-amber.vercel.app) goes to the
+  // real homepage. API routes are left alone: Inngest and Paystack call the
+  // deployment URL directly and a redirect would drop their POSTs.
+  if (isProduction && req.nextUrl.origin !== PRODUCTION_ORIGIN && !isApiRoute(req)) {
+    return NextResponse.redirect(new URL("/", PRODUCTION_ORIGIN), 308);
+  }
+
   // Nigeria-only soft gate (ALLOWED_COUNTRIES=NG). Header-based; if the hosting
   // platform doesn't provide a country header, requests pass through (dev mode).
   const allowed = process.env.ALLOWED_COUNTRIES;
@@ -37,7 +48,10 @@ export default clerkMiddleware(async (auth, req) => {
     }
   }
 
-  if (isProtectedRoute(req)) await auth.protect();
+  if (isProtectedRoute(req)) {
+    const { userId } = await auth();
+    if (!userId) return NextResponse.redirect(new URL("/", req.url));
+  }
 }, { authorizedParties });
 
 export const config = {

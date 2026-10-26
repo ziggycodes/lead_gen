@@ -17,8 +17,7 @@ export default async function AdminPage() {
   try {
     await requireAdmin();
   } catch (err) {
-    if (err instanceof UnauthorizedError) redirect("/sign-in");
-    if (err instanceof ForbiddenError) redirect("/app");
+    if (err instanceof UnauthorizedError || err instanceof ForbiddenError) redirect("/");
     throw err;
   }
 
