@@ -12,6 +12,7 @@ export interface LeadFilters {
   hasPhone: boolean;
   savedOnly: boolean;
   followUpDue: boolean;
+  aiReady: boolean;
 }
 
 export const EMPTY_FILTERS: LeadFilters = {
@@ -24,6 +25,7 @@ export const EMPTY_FILTERS: LeadFilters = {
   hasPhone: false,
   savedOnly: false,
   followUpDue: false,
+  aiReady: false,
 };
 
 export function filtersActive(filters: LeadFilters): boolean {
@@ -36,7 +38,8 @@ export function filtersActive(filters: LeadFilters): boolean {
     filters.hasEmail ||
     filters.hasPhone ||
     filters.savedOnly ||
-    filters.followUpDue
+    filters.followUpDue ||
+    filters.aiReady
   );
 }
 
@@ -51,6 +54,7 @@ export function filterLeads(leads: CrmLead[], filters: LeadFilters): CrmLead[] {
     if (filters.hasPhone && !l.phone) return false;
     if (filters.savedOnly && !l.saved) return false;
     if (filters.followUpDue && !isFollowUpDue(l.followUpAt)) return false;
+    if (filters.aiReady && l.insightStatus !== "ready") return false;
     if (q) {
       const hay = [l.name, l.contactName, l.email, l.phone, l.city, l.state, l.niche, l.decisionMakers?.[0]?.name]
         .filter(Boolean)

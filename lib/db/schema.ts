@@ -29,6 +29,10 @@ export const users = pgTable(
     accountNote: text("account_note"),
     // Null means contact emails found in searches are unlimited.
     emailDailyLimit: integer("email_daily_limit"),
+    // What the account sells; grounds AI pitches. Shape: OfferProfile in lib/insights.ts.
+    offerProfile: jsonb("offer_profile"),
+    // Printed at the foot of bulk emails; CAN-SPAM requires a physical address.
+    postalAddress: text("postal_address"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex("users_clerk_id_idx").on(t.clerkId)]
@@ -141,6 +145,10 @@ export const leads = pgTable(
       onDelete: "set null",
     }),
     followUpAt: timestamp("follow_up_at", { withTimezone: true }),
+    // AI research draft. Shape: LeadInsight in lib/insights.ts.
+    insight: jsonb("insight"),
+    insightStatus: text("insight_status"), // pending | ready | low_confidence | failed | no_site
+    insightAt: timestamp("insight_at", { withTimezone: true }),
     lastActivityAt: timestamp("last_activity_at", { withTimezone: true }).notNull().defaultNow(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -225,6 +233,8 @@ export const emailAccounts = pgTable(
     lastError: text("last_error"),
     lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
     isDefault: boolean("is_default").notNull().default(false),
+    // Sets this mailbox's sending hours and the day its bulk cap resets.
+    timezone: text("timezone").notNull().default("Africa/Lagos"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -264,6 +274,84 @@ export const emailMessages = pgTable(
   ]
 );
 
+export const emailTemplates = pgTable(
+  "email_templates",
+  {
+    id: serial("id").primaryKey(),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    subject: text("subject").notNull(),
+    body: text("body").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("email_templates_user_idx").on(t.userId)]
+);
+
+// One templated send to many leads, sent at a steady pace by bulkSendJob.
+export const bulkSends = pgTable(
+  "bulk_sends",
+  {
+    id: serial("id").primaryKey(),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    accountId: integer("account_id")
+      .notNull()
+      .references(() => emailAccounts.id, { onDelete: "cascade" }),
+    templateId: integer("template_id").references(() => emailTemplates.id, { onDelete: "set null" }),
+    // The template is copied so later edits don't change a batch mid-send.
+    subject: text("subject").notNull(),
+    body: text("body").notNull(),
+    status: text("status").notNull().default("queued"), // queued | running | completed | cancelled | failed
+    total: integer("total").notNull().default(0),
+    sent: integer("sent").notNull().default(0),
+    skipped: integer("skipped").notNull().default(0),
+    failed: integer("failed").notNull().default(0),
+    cancelRequested: boolean("cancel_requested").notNull().default(false),
+    // Set while the batch waits for the mailbox's next sending window.
+    resumeAt: timestamp("resume_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+  },
+  (t) => [index("bulk_sends_user_created_idx").on(t.userId, t.createdAt)]
+);
+
+export const bulkSendRecipients = pgTable(
+  "bulk_send_recipients",
+  {
+    id: serial("id").primaryKey(),
+    bulkSendId: integer("bulk_send_id")
+      .notNull()
+      .references(() => bulkSends.id, { onDelete: "cascade" }),
+    leadId: integer("lead_id").references(() => leads.id, { onDelete: "set null" }),
+    email: text("email").notNull().default(""),
+    status: text("status").notNull().default("pending"), // pending | sent | skipped | failed
+    // Temporary send failures so far; see MAX_SEND_ATTEMPTS.
+    attempts: integer("attempts").notNull().default(0),
+    reason: text("reason"),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+  },
+  (t) => [index("bulk_send_recipients_send_idx").on(t.bulkSendId, t.status)]
+);
+
+// Addresses that unsubscribed from this account's emails. Applies to all of the
+// account's mailboxes and outlives the lead row, so a later search can't re-add them.
+export const emailSuppressions = pgTable(
+  "email_suppressions",
+  {
+    id: serial("id").primaryKey(),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    email: text("email").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("email_suppressions_user_email_idx").on(t.userId, t.email)]
+);
+
 // Audit trail of admin changes. Admins are identified by email because an
 // ADMIN_EMAILS address may never have opened the app and so has no users row.
 export const adminActions = pgTable(
@@ -297,3 +385,24 @@ export const overpassCache = pgTable("overpass_cache", {
   fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull().defaultNow(),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
 });
+
+// One row per browser that allowed notifications. The endpoint identifies the browser.
+export const pushSubscriptions = pgTable(
+  "push_subscriptions",
+  {
+    id: serial("id").primaryKey(),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    endpoint: text("endpoint").notNull(),
+    p256dh: text("p256dh").notNull(),
+    auth: text("auth").notNull(),
+    userAgent: text("user_agent"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex("push_subscriptions_endpoint_idx").on(t.endpoint),
+    index("push_subscriptions_user_idx").on(t.userId),
+  ]
+);

@@ -64,6 +64,48 @@
       "when": 1792938843446,
       "tag": "0008_admin_actions",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1793005120254,
+      "tag": "0009_push_subscriptions",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1793144855896,
+      "tag": "0010_templates_bulk_ai",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1793659856213,
+      "tag": "0011_warmup_limits",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1793666955983,
+      "tag": "0012_send_attempts",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1793792940391,
+      "tag": "0013_email_suppressions",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1793795695879,
+      "tag": "0014_postal_address",
+      "breakpoints": true
     }
   ]
 }

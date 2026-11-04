@@ -70,3 +70,16 @@ describe("pickContactPages", () => {
     assert.equal(pages.length, 2);
   });
 });
+
+it("htmlToText keeps title, description, and body text without scripts", async () => {
+  const { htmlToText } = await import("./contactScrape.js");
+  const html = `<html><head><title>Bright Smile</title><meta name="description" content="Family dentist in Austin"><style>.a{}</style></head>
+    <body><script>track()</script><h1>Invisalign &amp; implants</h1><p>Open Saturdays</p></body></html>`;
+  assert.equal(htmlToText(html), "Bright Smile\nFamily dentist in Austin\nInvisalign & implants\nOpen Saturdays");
+});
+
+it("pickInsightPages prefers service pages on the same host", async () => {
+  const { pickInsightPages } = await import("./contactScrape.js");
+  const html = `<a href="/services">S</a><a href="https://other.com/about">X</a><a href="/blog">B</a><a href="/about-us">A</a><a href="/pricing">P</a>`;
+  assert.deepEqual(pickInsightPages(html, "https://smile.com/"), ["https://smile.com/services", "https://smile.com/about-us"]);
+});

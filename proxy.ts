@@ -14,6 +14,9 @@ const isGateExempt = createRouteMatcher([
   "/api/health(.*)",
   // Inngest calls this from its own servers to run background searches.
   "/api/inngest(.*)",
+  // People emailed by our users must be able to opt out from any country.
+  "/unsubscribe(.*)",
+  "/api/unsubscribe(.*)",
 ]);
 
 // Only session tokens minted for these origins are accepted in production, so

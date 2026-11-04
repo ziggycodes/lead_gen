@@ -1,5 +1,5 @@
 import nodemailer from "nodemailer";
-import { MailboxAuthError, safeMailError } from "./errors";
+import { MailboxAuthError, TemporarySendError, isTemporarySendFailure, logMailFailure, safeMailError } from "./errors";
 
 export type SmtpTarget = {
   address: string;
@@ -40,19 +40,26 @@ export async function sendSmtp(input: {
   to: string;
   subject: string;
   text: string;
+  headers?: Record<string, string>;
 }): Promise<string> {
   const client = transport(input.target, input.password);
   const fromName = input.target.fromName.replace(/["<>]/g, "").trim();
   const from = fromName ? `"${fromName}" <${input.target.address}>` : input.target.address;
+  let stage: "check" | "send" = "check";
   try {
+    await client.verify();
+    stage = "send";
     const info = await client.sendMail({
       from,
       to: input.to,
       subject: input.subject,
       text: input.text,
+      headers: input.headers,
     });
     return typeof info.messageId === "string" ? info.messageId : "";
   } catch (err) {
+    logMailFailure("smtp_send_failed", err, { stage });
+    if (isTemporarySendFailure(err, stage)) throw new TemporarySendError(safeMailError(err));
     throw new MailboxAuthError(safeMailError(err));
   } finally {
     client.close();

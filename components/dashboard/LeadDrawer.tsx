@@ -21,19 +21,24 @@ import {
   History,
   CircleAlert,
   Search,
+  Sparkles,
 } from "lucide-react";
 import { LEAD_STATUSES, STATUS_LABELS, isLeadStatus } from "@/lib/crm";
-import type { CrmLead, LeadActivity, LeadNote } from "./types";
+import type { CrmLead, EmailTemplate, LeadActivity, LeadNote } from "./types";
+import { renderTemplate } from "@/lib/mail/merge";
 import {
   addNote,
   deleteLead,
   deleteNote,
   fetchLeadDetail,
+  fetchOfferProfile,
+  fetchTemplates,
   lookupDecisionMakers,
   updateLead,
 } from "./crmApi";
 import { formatDate, formatDateTime, isFollowUpDue, location, toDateInput } from "./format";
 import { StatusPill } from "./StatusPill";
+import { AiResearchBlock } from "./AiResearchBlock";
 
 type EditForm = Record<
   "name" | "contactName" | "email" | "phone" | "website" | "address" | "city" | "state",
@@ -64,6 +69,8 @@ function describeActivity(a: LeadActivity): string {
       return "Added from a search";
     case "status_changed":
       return `Status changed from ${statusLabel(d.from)} to ${statusLabel(d.to)}`;
+    case "unsubscribed":
+      return "Unsubscribed from your emails";
     case "saved":
       return "Saved";
     case "unsaved":
@@ -156,6 +163,9 @@ export function LeadDrawer({
   const [mailAccountId, setMailAccountId] = useState<number | "">("");
   const [mailSubject, setMailSubject] = useState("");
   const [mailBody, setMailBody] = useState("");
+  const [templates, setTemplates] = useState<EmailTemplate[]>([]);
+  const [templateNote, setTemplateNote] = useState<string | null>(null);
+  const [aiEnabled, setAiEnabled] = useState(false);
 
   const applyDetail = useCallback(
     (d: { lead: CrmLead; notes: LeadNote[]; activities: LeadActivity[] }) => {
@@ -213,6 +223,12 @@ export function LeadDrawer({
       .catch(() => {
         if (!cancelled) setMailboxes([]);
       });
+    fetchTemplates()
+      .then(({ templates: rows }) => !cancelled && setTemplates(rows))
+      .catch(() => {});
+    fetchOfferProfile()
+      .then((json) => !cancelled && setAiEnabled(json.ai === "available"))
+      .catch(() => {});
     return () => {
       cancelled = true;
     };
@@ -571,6 +587,35 @@ export function LeadDrawer({
                               ))}
                             </select>
                           </label>
+                          {templates.length > 0 && (
+                            <label className="block">
+                              <span className="text-xs font-medium text-muted">Use template</span>
+                              <select
+                                value=""
+                                onChange={(e) => {
+                                  const template = templates.find((t) => t.id === Number(e.target.value));
+                                  if (!template) return;
+                                  const rendered = renderTemplate(template, lead);
+                                  setMailSubject(rendered.subject);
+                                  setMailBody(rendered.body);
+                                  setTemplateNote(
+                                    rendered.missing.length
+                                      ? `This lead has no value for ${rendered.missing.map((f) => `{{${f}}}`).join(", ")}. Fill the gaps before sending.`
+                                      : null
+                                  );
+                                }}
+                                className="mt-1 w-full rounded-lg border border-line bg-oat px-2 py-1.5 text-sm outline-none focus:border-accent"
+                              >
+                                <option value="">Choose a template…</option>
+                                {templates.map((t) => (
+                                  <option key={t.id} value={t.id}>
+                                    {t.name}
+                                  </option>
+                                ))}
+                              </select>
+                              {templateNote && <span className="mt-1 block text-xs text-danger">{templateNote}</span>}
+                            </label>
+                          )}
                           <label className="block">
                             <span className="text-xs font-medium text-muted">Subject</span>
                             <input
@@ -635,6 +680,17 @@ export function LeadDrawer({
                         <span className="text-muted">Not available</span>
                       )}
                     </DetailRow>
+                    {aiEnabled && (
+                      <DetailRow icon={<Sparkles className="h-4 w-4" />} label="AI research">
+                        <AiResearchBlock
+                          lead={lead}
+                          onLeadChange={(next) => {
+                            setLead(next);
+                            onLeadChange(next);
+                          }}
+                        />
+                      </DetailRow>
+                    )}
                     <DetailRow icon={<Users className="h-4 w-4" />} label="Decision makers">
                       <DecisionMakerBlock lead={lead} />
                       {!lead.decisionMakers?.length && (

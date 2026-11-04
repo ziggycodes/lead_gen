@@ -12,6 +12,8 @@ import { Sidebar, type WorkbenchView } from "./Sidebar";
 import { FindSheet, type FindPrefill } from "./FindSheet";
 import { SearchDonePopup } from "./SearchDonePopup";
 import { useSearchJob } from "./useSearchJob";
+import { usePushNotifications } from "./usePushNotifications";
+import { PushPrompt } from "./NotificationControls";
 import { EMPTY_FILTERS, type LeadFilters } from "./leadFilters";
 import { isFollowUpDue } from "./format";
 
@@ -108,6 +110,8 @@ export function Dashboard() {
       setHistoryKey((k) => k + 1);
     },
   });
+
+  const push = usePushNotifications();
 
   const mergeLeads = useCallback((updated: CrmLead[]) => {
     if (!updated.length) return;
@@ -210,6 +214,7 @@ export function Dashboard() {
             onNavigate={() => setRailOpen(false)}
             view={view}
             onView={setWorkbenchView}
+            push={push}
             className="h-full"
           />
         }
@@ -254,6 +259,7 @@ export function Dashboard() {
             onOpenLead={setOpenLeadId}
             onLeadsUpdated={mergeLeads}
             onLeadsDeleted={removeLeads}
+            onOpenMailboxes={() => setWorkbenchView("mailboxes")}
             onFindLeads={openFind}
             view={view}
             onViewChange={setWorkbenchView}
@@ -270,6 +276,7 @@ export function Dashboard() {
         running={search.running}
         onStart={search.start}
         onStop={search.cancel}
+        notifyPrompt={<PushPrompt push={push} />}
       />
       {search.finished && (
         <SearchDonePopup

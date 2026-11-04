@@ -1,4 +1,4 @@
-import type { CrmLead, LeadActivity, LeadNote } from "./types";
+import type { BulkSend, CrmLead, EmailTemplate, LeadActivity, LeadNote } from "./types";
 
 export interface LeadDetail {
   lead: CrmLead;
@@ -86,4 +86,84 @@ export function deleteNote(id: number, noteId: number) {
 
 export function lookupDecisionMakers(id: number) {
   return request<{ lead: CrmLead }>(`/api/leads/${id}/decision-makers`, { method: "POST" });
+}
+
+export function fetchTemplates() {
+  return request<{ templates: EmailTemplate[] }>("/api/email-templates");
+}
+
+export function saveTemplate(id: number | null, body: { name: string; subject: string; body: string }) {
+  return request<{ template: EmailTemplate }>(id ? `/api/email-templates/${id}` : "/api/email-templates", {
+    method: id ? "PATCH" : "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function deleteTemplate(id: number) {
+  return request<{ deleted: number }>(`/api/email-templates/${id}`, { method: "DELETE" });
+}
+
+export function startBulkSend(body: { accountId: number; templateId: number; leadIds: number[] }) {
+  return request<{ send: BulkSend }>("/api/email/bulk", { method: "POST", body: JSON.stringify(body) });
+}
+
+export function fetchBulkSends() {
+  return request<{ sends: BulkSend[] }>("/api/email/bulk");
+}
+
+export function cancelBulkSend(id: number) {
+  return request<{ send: BulkSend }>(`/api/email/bulk/${id}`, { method: "DELETE" });
+}
+
+export type Mailbox = {
+  id: number;
+  address: string;
+  isDefault: boolean;
+  status: string;
+  provider: string;
+  smtpHost: string;
+  timezone: string;
+  createdAt: string;
+  warmup: { day: number; cap: number; sentToday: number; remainingToday: number; warmed: boolean };
+};
+
+export async function fetchConnectedMailboxes(): Promise<Mailbox[]> {
+  const { mailboxes } = await request<{ mailboxes: Mailbox[] }>("/api/email-accounts");
+  return (mailboxes || []).filter((m) => m.status === "connected");
+}
+
+export function fetchPostalAddress() {
+  return request<{ postalAddress: string | null }>("/api/postal-address");
+}
+
+export function savePostalAddress(postalAddress: string) {
+  return request<{ postalAddress: string }>("/api/postal-address", {
+    method: "PUT",
+    body: JSON.stringify({ postalAddress }),
+  });
+}
+
+export type OfferProfile = { offer: string; audience: string; proof: string; tone: string };
+
+// Mirrors AiAccess in lib/insights.ts.
+export type AiAccess = "available" | "not_configured" | "premium_required";
+
+export function fetchOfferProfile() {
+  return request<{ ai: AiAccess; offer: OfferProfile | null }>("/api/offer-profile");
+}
+
+export function saveOfferProfile(body: OfferProfile) {
+  return request<{ offer: OfferProfile }>("/api/offer-profile", { method: "PUT", body: JSON.stringify(body) });
+}
+
+export function researchLeads(leadIds: number[]) {
+  return request<{ queued: number[] }>("/api/insights", { method: "POST", body: JSON.stringify({ leadIds }) });
+}
+
+export function researchLead(id: number) {
+  return request<{ lead: CrmLead }>(`/api/leads/${id}/insight`, { method: "POST" });
+}
+
+export function saveInsight(id: number, body: { opener: string; painPoint: string; pitch: string }) {
+  return request<{ lead: CrmLead }>(`/api/leads/${id}/insight`, { method: "PATCH", body: JSON.stringify(body) });
 }

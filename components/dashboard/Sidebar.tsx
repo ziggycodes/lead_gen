@@ -6,6 +6,8 @@ import type { SearchHistoryItem } from "./types";
 import type { LeadFilters } from "./leadFilters";
 import { EMPTY_FILTERS } from "./leadFilters";
 import { formatDate } from "./format";
+import { PushToggle } from "./NotificationControls";
+import type { PushNotifications } from "./usePushNotifications";
 
 function searchLabel(s: SearchHistoryItem): string {
   const niches = (s.params?.niches || "").split(",").filter(Boolean);
@@ -26,6 +28,7 @@ export function Sidebar({
   onNavigate,
   view,
   onView,
+  push,
   className = "",
 }: {
   filters: LeadFilters;
@@ -37,6 +40,7 @@ export function Sidebar({
   onNavigate?: () => void;
   view: WorkbenchView;
   onView: (view: WorkbenchView) => void;
+  push?: PushNotifications;
   className?: string;
 }) {
   const [searches, setSearches] = useState<SearchHistoryItem[]>([]);
@@ -181,6 +185,7 @@ export function Sidebar({
       </nav>
 
       <div className="border-t border-line p-3">
+        {push ? <PushToggle push={push} /> : null}
         <button
           onClick={() => {
             onFind();

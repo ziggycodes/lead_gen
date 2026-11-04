@@ -1,0 +1,1 @@
+ALTER TABLE "bulk_send_recipients" ADD COLUMN "attempts" integer DEFAULT 0 NOT NULL;
