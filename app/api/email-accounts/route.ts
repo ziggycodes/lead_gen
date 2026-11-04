@@ -36,6 +36,7 @@ export async function POST(req: NextRequest) {
       smtpPort: body.smtpPort,
       imapHost: typeof body.imapHost === "string" ? body.imapHost : undefined,
       imapPort: body.imapPort,
+      timezone: body.timezone,
     };
     const mailbox = await connectMailbox(user.id, input);
     return NextResponse.json({ mailbox });

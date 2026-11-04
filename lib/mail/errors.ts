@@ -5,6 +5,26 @@ export class MailboxAuthError extends Error {
   }
 }
 
+// The mail server never took the message, so sending again can't duplicate it.
+export class TemporarySendError extends MailboxAuthError {
+  constructor(message: string) {
+    super(message);
+    this.name = "TemporarySendError";
+  }
+}
+
+const CONNECTION_CODES = new Set(["ECONNECTION", "ESOCKET", "ETIMEDOUT", "EDNS"]);
+
+// Nodemailer reports a dropped connection the same way at every stage, even
+// after the server has the message. So a connection error only proves nothing
+// was sent during the check before sending. A 4xx reply is safe at any stage:
+// the server is saying it did not accept the message.
+export function isTemporarySendFailure(err: unknown, stage: "check" | "send") {
+  const { code, responseCode } = (err ?? {}) as { code?: unknown; responseCode?: unknown };
+  if (typeof responseCode === "number" && responseCode >= 400 && responseCode < 500) return true;
+  return stage === "check" && typeof code === "string" && CONNECTION_CODES.has(code);
+}
+
 export class SendLimitError extends Error {
   constructor() {
     super("This mailbox has sent 30 emails in the last hour. Wait before sending more.");
@@ -46,10 +66,14 @@ export function logMailEvent(event: string, fields: Record<string, string | numb
 }
 
 export function logMailFailure(event: string, err: unknown, fields: Record<string, string | number | null> = {}) {
+  const detail = (err ?? {}) as { code?: unknown; command?: unknown; responseCode?: unknown };
   console.error(
     JSON.stringify({
       event,
       name: err instanceof Error ? err.name : "Error",
+      code: detail.code,
+      command: detail.command,
+      responseCode: detail.responseCode,
       ...fields,
     })
   );

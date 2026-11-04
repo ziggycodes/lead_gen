@@ -5,3 +5,5 @@ import { Inngest } from "inngest";
 export const inngest = new Inngest({ id: "leadscout" });
 
 export const SEARCH_REQUESTED = "leadscout/search.requested";
+export const BULK_SEND_REQUESTED = "leadscout/bulk-send.requested";
+export const INSIGHTS_REQUESTED = "leadscout/insights.requested";

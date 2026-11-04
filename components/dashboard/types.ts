@@ -47,6 +47,9 @@ export interface CrmLead {
   emailsFound: string[];
   sourceSearchId: number | null;
   followUpAt: string | null;
+  insight: LeadInsight | null;
+  insightStatus: "pending" | "ready" | "low_confidence" | "failed" | "no_site" | null;
+  insightAt: string | null;
   lastActivityAt: string;
   createdAt: string;
 }
@@ -111,3 +114,37 @@ export const CHART_COLORS = [
   "#ddd4c0", // line
   "#fffbf2", // panel
 ];
+
+export interface EmailTemplate {
+  id: number;
+  name: string;
+  subject: string;
+  body: string;
+  updatedAt: string;
+}
+
+export interface BulkSend {
+  id: number;
+  accountId: number;
+  status: "queued" | "running" | "completed" | "cancelled" | "failed";
+  total: number;
+  sent: number;
+  skipped: number;
+  failed: number;
+  resumeAt: string | null;
+  createdAt: string;
+  completedAt: string | null;
+}
+
+// Mirrors LeadInsight in lib/insights.ts.
+export interface LeadInsight {
+  summary: string;
+  painPoint: string;
+  opener: string;
+  pitch: string;
+  evidence: string[];
+  confidence: "high" | "medium" | "low";
+  sources: string[];
+  edited?: boolean;
+  error?: string;
+}

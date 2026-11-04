@@ -259,6 +259,7 @@ export function Dashboard() {
             onOpenLead={setOpenLeadId}
             onLeadsUpdated={mergeLeads}
             onLeadsDeleted={removeLeads}
+            onOpenMailboxes={() => setWorkbenchView("mailboxes")}
             onFindLeads={openFind}
             view={view}
             onViewChange={setWorkbenchView}

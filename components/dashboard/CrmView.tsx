@@ -15,14 +15,16 @@ import {
   Mail,
   Phone,
   Search,
+  Sparkles,
   Star,
   Trash2,
   Users,
   X,
 } from "lucide-react";
 import { LEAD_STATUSES, STATUS_LABELS, STATUS_STYLES, isLeadStatus } from "@/lib/crm";
-import type { CrmLead, SearchHistoryItem } from "./types";
-import { bulkDeleteLeads, bulkUpdateLeads } from "./crmApi";
+import type { BulkSend, CrmLead, SearchHistoryItem } from "./types";
+import { BulkSendProgress, BulkSendSheet } from "./BulkSendSheet";
+import { bulkDeleteLeads, bulkUpdateLeads, fetchLeads, fetchOfferProfile, researchLeads } from "./crmApi";
 import { formatDate, isFollowUpDue, location, timeAgo } from "./format";
 import { EMPTY_FILTERS, filterLeads, filtersActive, type LeadFilters } from "./leadFilters";
 import { leadToText } from "./LeadDrawer";
@@ -75,6 +77,7 @@ export function CrmView({
   onFindLeads,
   view,
   onViewChange,
+  onOpenMailboxes,
 }: {
   leads: CrmLead[];
   loading: boolean;
@@ -88,6 +91,7 @@ export function CrmView({
   onFindLeads: () => void;
   view: ViewMode;
   onViewChange: (view: ViewMode) => void;
+  onOpenMailboxes?: () => void;
 }) {
   const [sortKey, setSortKey] = useState<SortKey>("lastActivity");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
@@ -98,6 +102,27 @@ export function CrmView({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [searches, setSearches] = useState<SearchHistoryItem[]>([]);
   const [copiedId, setCopiedId] = useState<number | null>(null);
+  const [bulkEmailOpen, setBulkEmailOpen] = useState(false);
+  const [bulkStarted, setBulkStarted] = useState<BulkSend | null>(null);
+  const [aiEnabled, setAiEnabled] = useState(false);
+
+  useEffect(() => {
+    fetchOfferProfile()
+      .then((json) => setAiEnabled(json.ai === "available"))
+      .catch(() => {});
+  }, []);
+
+  // While AI research runs in the background, refresh leads until none are pending.
+  const researching = leads.some((l) => l.insightStatus === "pending");
+  useEffect(() => {
+    if (!researching) return;
+    const timer = window.setInterval(() => {
+      fetchLeads()
+        .then(({ leads: fresh }) => onLeadsUpdated(fresh))
+        .catch(() => {});
+    }, 10_000);
+    return () => window.clearInterval(timer);
+  }, [researching, onLeadsUpdated]);
 
   const setFilters = (patch: Partial<LeadFilters>) => {
     onFiltersChange({ ...filters, ...patch });
@@ -195,6 +220,16 @@ export function CrmView({
       onLeadsDeleted(deleted);
       setSelected(new Set());
       setConfirmDelete(false);
+    });
+
+  const researchSelected = () =>
+    act(async () => {
+      const { queued } = await researchLeads(selectedIds);
+      const ids = new Set(queued);
+      onLeadsUpdated(
+        leads.filter((l) => ids.has(l.id)).map((l) => ({ ...l, insightStatus: "pending" as const }))
+      );
+      setSelected(new Set());
     });
 
   const copyLead = async (lead: CrmLead) => {
@@ -319,6 +354,14 @@ export function CrmView({
             icon={<Phone className="h-3.5 w-3.5" />}
             label="Has phone"
           />
+          {aiEnabled && (
+            <Toggle
+              active={filters.aiReady}
+              onClick={() => setFilters({ aiReady: !filters.aiReady })}
+              icon={<Sparkles className="h-3.5 w-3.5" />}
+              label="AI ready"
+            />
+          )}
           {active && (
             <button
               onClick={() => onFiltersChange(EMPTY_FILTERS)}
@@ -329,6 +372,21 @@ export function CrmView({
             </button>
           )}
         </div>
+
+        <BulkSendProgress started={bulkStarted} onLeadsRefreshed={onLeadsUpdated} />
+
+        {bulkEmailOpen && (
+          <BulkSendSheet
+            leads={leads.filter((l) => selected.has(l.id))}
+            onClose={() => setBulkEmailOpen(false)}
+            onStarted={(send) => {
+              setBulkStarted(send);
+              setBulkEmailOpen(false);
+              setSelected(new Set());
+            }}
+            onOpenMailboxes={onOpenMailboxes}
+          />
+        )}
 
         {selected.size > 0 && (
           <div className="flex flex-wrap items-center gap-2 rounded-2xl bg-ink px-3 py-2 text-sm text-white">
@@ -356,6 +414,16 @@ export function CrmView({
             <BulkButton disabled={busy} onClick={() => updateMany(selectedIds, { saved: false })}>
               Unsave
             </BulkButton>
+            <BulkButton disabled={busy} onClick={() => setBulkEmailOpen(true)}>
+              <Mail className="h-3.5 w-3.5" />
+              Email
+            </BulkButton>
+            {aiEnabled && (
+              <BulkButton disabled={busy} onClick={researchSelected}>
+                <Sparkles className="h-3.5 w-3.5" />
+                Research with AI
+              </BulkButton>
+            )}
             <div className="ml-auto flex items-center gap-2">
               {confirmDelete ? (
                 <>

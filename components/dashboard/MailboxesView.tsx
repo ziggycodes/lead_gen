@@ -3,6 +3,9 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Building2, Mail } from "lucide-react";
 import { ZOHO_PREFILL } from "@/lib/mail/presets";
+import { WARMUP_DAYS } from "@/lib/mail/warmup";
+import { OfferProfileCard } from "./OfferProfileCard";
+import { TemplatesManager } from "./TemplatesManager";
 
 type Mailbox = {
   id: number;
@@ -12,6 +15,7 @@ type Mailbox = {
   status: string;
   lastError: string | null;
   isDefault: boolean;
+  warmup: { day: number; cap: number; sentToday: number; warmed: boolean };
 };
 
 type Connector = "gmail" | "business";
@@ -80,6 +84,7 @@ export function MailboxesView() {
           address,
           fromName,
           appPassword,
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
           ...(connector === "business" ? { smtpHost, smtpPort: Number(smtpPort), imapHost, imapPort: Number(imapPort) } : {}),
         }),
       });
@@ -259,6 +264,7 @@ export function MailboxesView() {
                       {mailbox.fromName ? ` · ${mailbox.fromName}` : ""}
                       {mailbox.isDefault ? " · Default" : ""}
                     </p>
+                    <WarmupStatus warmup={mailbox.warmup} />
                     {mailbox.lastError && <p className="mt-1 text-xs text-danger">{mailbox.lastError}</p>}
                   </div>
                   <div className="flex items-center gap-2">
@@ -299,7 +305,28 @@ export function MailboxesView() {
             </ul>
           )}
         </div>
+
+        <div className="border-t border-line pt-5">
+          <TemplatesManager />
+        </div>
+
+        <OfferProfileCard />
       </div>
+    </div>
+  );
+}
+
+function WarmupStatus({ warmup }: { warmup: Mailbox["warmup"] }) {
+  const sent = `${warmup.sentToday} of ${warmup.cap} sent today`;
+  if (warmup.warmed) return <p className="mt-1 text-xs text-muted">Warmed up · {sent}</p>;
+  return (
+    <div className="mt-1.5">
+      <p className="text-xs text-muted">
+        Warming, day {warmup.day} of {WARMUP_DAYS} · {sent}
+      </p>
+      <span className="mt-1 block h-1 w-40 max-w-full overflow-hidden rounded-full bg-line">
+        <span className="block h-full bg-accent" style={{ width: `${(warmup.day / WARMUP_DAYS) * 100}%` }} />
+      </span>
     </div>
   );
 }
@@ -371,7 +398,8 @@ function BusinessGuide({ onContinue, onClose }: { onContinue: () => void; onClos
         <p className="font-medium">So the mail is less likely to land in spam</p>
         <ul className="mt-1.5 list-disc space-y-1 pl-4 text-muted">
           <li>Send from an address on a domain you control, with a real from name.</li>
-          <li>A new mailbox should start with a small number of personal emails before it is used for outreach.</li>
+          <li>A new mailbox starts with a low daily limit for bulk email, which rises over {WARMUP_DAYS} days.</li>
+          <li>Check your host allows bulk email. Zoho&apos;s usage policy says Zoho Mail can&apos;t be used for bulk or automated email, and it can block accounts that do.</li>
           <li>Write to one person at a time. The same message sent to many people at once is what lands in spam.</li>
           <li>Those DNS records tell other mail servers the domain is allowed to send.</li>
         </ul>

@@ -1,4 +1,4 @@
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, count, desc, eq, sql } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import { encryptSecret } from "./crypto";
 import { MailboxAuthError, logMailEvent } from "./errors";
@@ -6,6 +6,7 @@ import { verifyImap } from "./imap";
 import { GMAIL_HOSTS, type MailProvider } from "./presets";
 import { verifySmtp } from "./smtp";
 import { clampPort, cleanAppPassword, isEmailAddress, isMailHost, normalizeEmail } from "./text";
+import { DEFAULT_TIMEZONE, isValidTimezone, warmupStatus } from "./warmup";
 
 const MAX_MAILBOXES = 20;
 
@@ -22,11 +23,32 @@ export type PublicMailbox = {
   lastError: string | null;
   isDefault: boolean;
   lastSyncedAt: string | null;
+  timezone: string;
+  createdAt: string;
+  warmup: ReturnType<typeof warmupStatus>;
 };
 
 type AccountRow = typeof schema.emailAccounts.$inferSelect;
 
-export function toPublicMailbox(row: AccountRow): PublicMailbox {
+// Outbound mail per mailbox since local midnight in each mailbox's own timezone.
+export async function sentTodayByAccount(userId: number, accountId?: number) {
+  const rows = await db()
+    .select({ accountId: schema.emailMessages.accountId, n: count() })
+    .from(schema.emailMessages)
+    .innerJoin(schema.emailAccounts, eq(schema.emailMessages.accountId, schema.emailAccounts.id))
+    .where(
+      and(
+        eq(schema.emailMessages.userId, userId),
+        accountId ? eq(schema.emailMessages.accountId, accountId) : undefined,
+        eq(schema.emailMessages.direction, "outbound"),
+        sql`${schema.emailMessages.sentAt} >= date_trunc('day', now() at time zone ${schema.emailAccounts.timezone}) at time zone ${schema.emailAccounts.timezone}`
+      )
+    )
+    .groupBy(schema.emailMessages.accountId);
+  return new Map(rows.map((row) => [row.accountId, row.n]));
+}
+
+function toPublicMailbox(row: AccountRow, sentToday: number): PublicMailbox {
   return {
     id: row.id,
     provider: row.provider === "gmail" ? "gmail" : "business",
@@ -40,15 +62,26 @@ export function toPublicMailbox(row: AccountRow): PublicMailbox {
     lastError: row.lastError,
     isDefault: row.isDefault,
     lastSyncedAt: row.lastSyncedAt ? row.lastSyncedAt.toISOString() : null,
+    timezone: row.timezone,
+    createdAt: row.createdAt.toISOString(),
+    warmup: warmupStatus(row, sentToday, new Date()),
   };
 }
 
+async function publicMailbox(row: AccountRow) {
+  const sent = await sentTodayByAccount(row.userId, row.id);
+  return toPublicMailbox(row, sent.get(row.id) ?? 0);
+}
+
 export async function listMailboxes(userId: number): Promise<PublicMailbox[]> {
-  const rows = await db().query.emailAccounts.findMany({
-    where: eq(schema.emailAccounts.userId, userId),
-    orderBy: [desc(schema.emailAccounts.isDefault), asc(schema.emailAccounts.address)],
-  });
-  return rows.map(toPublicMailbox);
+  const [rows, sent] = await Promise.all([
+    db().query.emailAccounts.findMany({
+      where: eq(schema.emailAccounts.userId, userId),
+      orderBy: [desc(schema.emailAccounts.isDefault), asc(schema.emailAccounts.address)],
+    }),
+    sentTodayByAccount(userId),
+  ]);
+  return rows.map((row) => toPublicMailbox(row, sent.get(row.id) ?? 0));
 }
 
 export async function ownedAccount(userId: number, accountId: number): Promise<AccountRow | null> {
@@ -67,6 +100,7 @@ export type ConnectInput = {
   smtpPort?: number;
   imapHost?: string;
   imapPort?: number;
+  timezone?: unknown;
 };
 
 function hostsFor(input: ConnectInput) {
@@ -103,6 +137,7 @@ export async function connectMailbox(userId: number, input: ConnectInput): Promi
   });
   const secretCiphertext = encryptSecret(password);
   const now = new Date();
+  const timezone = isValidTimezone(input.timezone) ? input.timezone : null;
 
   if (existing) {
     const [row] = await db()
@@ -114,12 +149,13 @@ export async function connectMailbox(userId: number, input: ConnectInput): Promi
         secretCiphertext,
         status: "connected",
         lastError: null,
+        timezone: timezone ?? existing.timezone,
         updatedAt: now,
       })
       .where(eq(schema.emailAccounts.id, existing.id))
       .returning();
     logMailEvent("mailbox_connected", { userId, accountId: row.id, provider: input.provider });
-    return toPublicMailbox(row);
+    return publicMailbox(row);
   }
 
   const current = await db().query.emailAccounts.findMany({
@@ -141,10 +177,11 @@ export async function connectMailbox(userId: number, input: ConnectInput): Promi
       secretCiphertext,
       status: "connected",
       isDefault: current.length === 0 || !current.some((item) => item.isDefault),
+      timezone: timezone ?? DEFAULT_TIMEZONE,
     })
     .returning();
   logMailEvent("mailbox_connected", { userId, accountId: row.id, provider: input.provider });
-  return toPublicMailbox(row);
+  return publicMailbox(row);
 }
 
 export async function setDefaultMailbox(userId: number, accountId: number): Promise<PublicMailbox> {
@@ -159,7 +196,7 @@ export async function setDefaultMailbox(userId: number, accountId: number): Prom
     .set({ isDefault: true, updatedAt: new Date() })
     .where(eq(schema.emailAccounts.id, row.id))
     .returning();
-  return toPublicMailbox(updated);
+  return publicMailbox(updated);
 }
 
 export async function removeMailbox(userId: number, accountId: number): Promise<void> {

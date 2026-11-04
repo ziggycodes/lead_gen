@@ -77,7 +77,7 @@ function hostname(url) {
 }
 
 // Fetch a single URL with a timeout and size cap. Returns HTML text or "".
-async function fetchHtml(url) {
+export async function fetchHtml(url) {
   try {
     const res = await fetch(url, {
       redirect: "follow",
@@ -283,6 +283,74 @@ export function pickContactPages(html, base) {
     add(resolveHref(path, base));
   }
   return picks;
+}
+
+// Pages that describe what a business does, for AI research. Same host only.
+export function pickInsightPages(html, base) {
+  const wanted = /service|treatment|about|what-we-do|pricing|specialt|procedure|menu/i;
+  const picks = [];
+  const seen = new Set([base.split("#")[0]]);
+  for (const href of extractHrefs(html || "")) {
+    if (picks.length >= MAX_EXTRA_PAGES) break;
+    if (!wanted.test(href)) continue;
+    const abs = resolveHref(href, base);
+    if (!abs || hostname(abs) !== hostname(base)) continue;
+    const key = abs.split("#")[0];
+    if (seen.has(key)) continue;
+    seen.add(key);
+    picks.push(key);
+  }
+  return picks;
+}
+
+const ENTITIES = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ", "#39": "'" };
+
+// Readable text from HTML: title, meta description, then body text without
+// scripts, styles, nav chrome, or tags. Best-effort, no DOM.
+export function htmlToText(html) {
+  if (!html) return "";
+  const title = (html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || "").trim();
+  const description =
+    html.match(/<meta[^>]+name=["']description["'][^>]*content=["']([^"']*)["']/i)?.[1] ||
+    html.match(/<meta[^>]+content=["']([^"']*)["'][^>]*name=["']description["']/i)?.[1] ||
+    "";
+  const body = (html.match(/<body[^>]*>([\s\S]*)<\/body>/i)?.[1] ?? html.replace(/<head[\s\S]*?<\/head>/i, " "))
+    .replace(/<(script|style|noscript|svg|iframe|template)[\s\S]*?<\/\1>/gi, " ")
+    .replace(/<!--[\s\S]*?-->/g, " ")
+    .replace(/<\/(p|div|li|h[1-6]|section|article|br|tr)>/gi, "\n")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<[^>]+>/g, " ");
+  const text = [title, description, body]
+    .join("\n")
+    .replace(/&(#?\w+);/g, (m, name) => ENTITIES[name.toLowerCase()] ?? m)
+    .replace(/[ \t\f\v]+/g, " ")
+    .replace(/\s*\n\s*/g, "\n")
+    .replace(/\n{2,}/g, "\n");
+  return text.trim();
+}
+
+// Homepage plus up to two "what we do" pages as plain text, capped at maxChars.
+// Returns { pages: [{ url, text }] }; pages is empty when the site can't be read.
+export async function fetchSiteText(website, maxChars = 15000) {
+  const url = normalizeUrl(website);
+  if (!url) return { pages: [] };
+  const homepage = await fetchHtml(url);
+  if (!homepage) return { pages: [] };
+  const pages = [{ url, text: htmlToText(homepage) }];
+  for (const page of pickInsightPages(homepage, url)) {
+    const html = await fetchHtml(page);
+    if (html) pages.push({ url: page, text: htmlToText(html) });
+  }
+  let budget = maxChars;
+  return {
+    pages: pages
+      .map((p) => {
+        const text = p.text.slice(0, Math.max(0, budget));
+        budget -= text.length;
+        return { url: p.url, text };
+      })
+      .filter((p) => p.text.length > 0),
+  };
 }
 
 // Scrape contact info for a single website. Returns:

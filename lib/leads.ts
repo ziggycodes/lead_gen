@@ -435,6 +435,9 @@ export interface CrmLead {
   emailsFound: string[];
   sourceSearchId: number | null;
   followUpAt: string | null;
+  insight: unknown;
+  insightStatus: string | null;
+  insightAt: string | null;
   lastActivityAt: string;
   createdAt: string;
 }
@@ -463,6 +466,9 @@ export function serializeLead(row: LeadRow): CrmLead {
     emailsFound: Array.isArray(extra.emailsFound) ? (extra.emailsFound as string[]) : [],
     sourceSearchId: row.sourceSearchId,
     followUpAt: row.followUpAt ? row.followUpAt.toISOString() : null,
+    insight: row.insight ?? null,
+    insightStatus: row.insightStatus,
+    insightAt: row.insightAt ? row.insightAt.toISOString() : null,
     lastActivityAt: row.lastActivityAt.toISOString(),
     createdAt: row.createdAt.toISOString(),
   };
