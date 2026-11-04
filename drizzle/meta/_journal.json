@@ -92,6 +92,13 @@
       "when": 1793666955983,
       "tag": "0012_send_attempts",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1793792940391,
+      "tag": "0013_email_suppressions",
+      "breakpoints": true
     }
   ]
 }

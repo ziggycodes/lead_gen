@@ -8,12 +8,14 @@ import {
   planRecipients,
   retryDelaySeconds,
   statusSkipLabel,
+  UNSUBSCRIBED_LABEL,
 } from "./bulkRules";
 import { MailboxAuthError, SendLimitError, TemporarySendError, logMailEvent, logMailFailure } from "./errors";
 import { renderTemplate } from "./merge";
 import { sendFromMailbox } from "./send";
 import { ownedTemplate } from "./templates";
 import { normalizeEmail } from "./text";
+import { isSuppressed, suppressedEmails } from "./unsubscribe";
 import { inSendWindow, nextWindowStart, sendGapSeconds, warmupStatus } from "./warmup";
 
 export const MAX_BULK_RECIPIENTS = 200;
@@ -48,7 +50,8 @@ export async function createBulkSend(
   });
   if (!leads.length) throw new MailboxAuthError("None of those leads were found.");
 
-  const plan = planRecipients(leads, template);
+  const suppressed = await suppressedEmails(userId, leads.map((lead) => lead.email));
+  const plan = planRecipients(leads, template, suppressed);
   const recipients = [
     ...plan.send.map((lead) => ({ leadId: lead.id, email: normalizeEmail(lead.email), status: "pending", reason: null })),
     ...plan.skip.map(({ lead, reason }) => ({ leadId: lead.id, email: normalizeEmail(lead.email), status: "skipped", reason })),
@@ -163,6 +166,10 @@ export async function sendNextRecipient(bulkSendId: number): Promise<SendStep> {
     await markSkipped("Lead was deleted");
     return { done: false };
   }
+  if (await isSuppressed(send.userId, next.email)) {
+    await markSkipped(UNSUBSCRIBED_LABEL);
+    return { done: false };
+  }
   if (lead.status === "replied" || BULK_SKIP_STATUSES.has(lead.status)) {
     await markSkipped(statusSkipLabel(lead.status));
     return { done: false };
@@ -195,6 +202,7 @@ export async function sendNextRecipient(bulkSendId: number): Promise<SendStep> {
       subject: rendered.subject,
       body: rendered.body,
       leadId: lead.id,
+      bulk: true,
     });
   } catch (err) {
     if (err instanceof SendLimitError) {

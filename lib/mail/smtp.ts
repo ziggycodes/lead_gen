@@ -40,6 +40,7 @@ export async function sendSmtp(input: {
   to: string;
   subject: string;
   text: string;
+  headers?: Record<string, string>;
 }): Promise<string> {
   const client = transport(input.target, input.password);
   const fromName = input.target.fromName.replace(/["<>]/g, "").trim();
@@ -53,6 +54,7 @@ export async function sendSmtp(input: {
       to: input.to,
       subject: input.subject,
       text: input.text,
+      headers: input.headers,
     });
     return typeof info.messageId === "string" ? info.messageId : "";
   } catch (err) {

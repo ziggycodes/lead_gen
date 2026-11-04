@@ -69,6 +69,8 @@ function describeActivity(a: LeadActivity): string {
       return "Added from a search";
     case "status_changed":
       return `Status changed from ${statusLabel(d.from)} to ${statusLabel(d.to)}`;
+    case "unsubscribed":
+      return "Unsubscribed from your emails";
     case "saved":
       return "Saved";
     case "unsaved":

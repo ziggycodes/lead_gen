@@ -335,6 +335,21 @@ export const bulkSendRecipients = pgTable(
   (t) => [index("bulk_send_recipients_send_idx").on(t.bulkSendId, t.status)]
 );
 
+// Addresses that unsubscribed from this account's emails. Applies to all of the
+// account's mailboxes and outlives the lead row, so a later search can't re-add them.
+export const emailSuppressions = pgTable(
+  "email_suppressions",
+  {
+    id: serial("id").primaryKey(),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    email: text("email").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("email_suppressions_user_email_idx").on(t.userId, t.email)]
+);
+
 // Audit trail of admin changes. Admins are identified by email because an
 // ADMIN_EMAILS address may never have opened the app and so has no users row.
 export const adminActions = pgTable(

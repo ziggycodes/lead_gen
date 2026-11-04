@@ -15,7 +15,7 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
-    "test": "node --test src/contactable.test.js src/contactScrape.test.js src/dedupe.test.js src/emailCap.test.js src/regularSearch.test.js src/searchNiche.test.js lib/mail/text.test.ts lib/mail/merge.test.ts lib/mail/warmup.test.ts lib/mail/errors.test.ts lib/insightEvidence.test.ts"
+    "test": "node --test src/contactable.test.js src/contactScrape.test.js src/dedupe.test.js src/emailCap.test.js src/regularSearch.test.js src/searchNiche.test.js lib/mail/text.test.ts lib/mail/merge.test.ts lib/mail/warmup.test.ts lib/mail/errors.test.ts lib/mail/unsubscribe.test.ts lib/insightEvidence.test.ts"
   },
   "engines": {
     "node": ">=18"

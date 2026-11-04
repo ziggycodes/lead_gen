@@ -235,6 +235,10 @@ export function BulkSendSheet({
                   <div className="px-4 py-3 text-sm">
                     <p className="font-semibold">{preview.subject}</p>
                     <p className="mt-2 whitespace-pre-wrap text-fg">{preview.body}</p>
+                    <p className="mt-3 border-t border-line pt-2 text-xs text-muted">
+                      An unsubscribe link is added to the end of every email. Anyone who uses it is never emailed again
+                      from this account.
+                    </p>
                   </div>
                 </div>
               )}

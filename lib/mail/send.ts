@@ -6,6 +6,8 @@ import { MailboxAuthError, SendLimitError, logMailEvent } from "./errors";
 import { noteEmailSent } from "./pipeline";
 import { sendSmtp } from "./smtp";
 import { isEmailAddress, normalizeEmail, normalizeMessageId } from "./text";
+import { isSuppressed } from "./unsubscribe";
+import { unsubscribeFooter, unsubscribeHeaders, unsubscribeUrls } from "./unsubscribeToken";
 
 const SENDS_PER_HOUR = 30;
 
@@ -42,22 +44,28 @@ async function leadForSend(userId: number, leadId: number | null, to: string) {
 
 export async function sendFromMailbox(
   userId: number,
-  input: { accountId: number; to: string; subject: string; body: string; leadId?: number | null }
+  input: { accountId: number; to: string; subject: string; body: string; leadId?: number | null; bulk?: boolean }
 ) {
   const to = normalizeEmail(input.to);
   const subject = input.subject.trim().slice(0, 200);
-  const body = input.body.trim().slice(0, 20_000);
+  const written = input.body.trim().slice(0, 20_000);
   if (!isEmailAddress(to)) throw new MailboxAuthError("Enter a valid recipient address.");
   if (!subject) throw new MailboxAuthError("Add a subject.");
-  if (!body) throw new MailboxAuthError("Write a message before sending.");
+  if (!written) throw new MailboxAuthError("Write a message before sending.");
 
   const account = await ownedAccount(userId, input.accountId);
   if (!account || account.status !== "connected") throw new MailboxAuthError("Choose a connected mailbox.");
+  if (await isSuppressed(userId, to)) {
+    throw new MailboxAuthError("This person unsubscribed from your emails, so LeadScout won't send to them.");
+  }
   await assertSendAllowance(userId, account.id);
 
   const lead = await leadForSend(userId, input.leadId ?? null, to);
   const password = decryptSecret(account.secretCiphertext);
-  const rawId = await sendSmtp({ target: account, password, to, subject, text: body });
+  const links = input.bulk ? unsubscribeUrls(userId, to) : null;
+  const body = links ? written + unsubscribeFooter(links.page) : written;
+  const headers = links ? unsubscribeHeaders(links.oneClick) : undefined;
+  const rawId = await sendSmtp({ target: account, password, to, subject, text: body, headers });
   const messageId = normalizeMessageId(rawId) || `local-${account.id}-${Date.now()}`;
   const sentAt = new Date();
 
