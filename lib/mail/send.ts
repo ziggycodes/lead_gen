@@ -6,7 +6,7 @@ import { MailboxAuthError, SendLimitError, logMailEvent } from "./errors";
 import { noteEmailSent } from "./pipeline";
 import { sendSmtp } from "./smtp";
 import { isEmailAddress, normalizeEmail, normalizeMessageId } from "./text";
-import { isSuppressed } from "./unsubscribe";
+import { POSTAL_ADDRESS_REQUIRED, isSuppressed, postalAddressFor } from "./unsubscribe";
 import { unsubscribeFooter, unsubscribeHeaders, unsubscribeUrls } from "./unsubscribeToken";
 
 const SENDS_PER_HOUR = 30;
@@ -62,9 +62,15 @@ export async function sendFromMailbox(
 
   const lead = await leadForSend(userId, input.leadId ?? null, to);
   const password = decryptSecret(account.secretCiphertext);
-  const links = input.bulk ? unsubscribeUrls(userId, to) : null;
-  const body = links ? written + unsubscribeFooter(links.page) : written;
-  const headers = links ? unsubscribeHeaders(links.oneClick) : undefined;
+  let body = written;
+  let headers: Record<string, string> | undefined;
+  if (input.bulk) {
+    const postalAddress = await postalAddressFor(userId);
+    if (!postalAddress) throw new MailboxAuthError(POSTAL_ADDRESS_REQUIRED);
+    const links = unsubscribeUrls(userId, to);
+    body = written + unsubscribeFooter(links.page, postalAddress);
+    headers = unsubscribeHeaders(links.oneClick);
+  }
   const rawId = await sendSmtp({ target: account, password, to, subject, text: body, headers });
   const messageId = normalizeMessageId(rawId) || `local-${account.id}-${Date.now()}`;
   const sentAt = new Date();

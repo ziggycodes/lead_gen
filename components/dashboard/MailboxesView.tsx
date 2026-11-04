@@ -5,6 +5,7 @@ import { Building2, Mail } from "lucide-react";
 import { ZOHO_PREFILL } from "@/lib/mail/presets";
 import { WARMUP_DAYS } from "@/lib/mail/warmup";
 import { OfferProfileCard } from "./OfferProfileCard";
+import { PostalAddressCard } from "./PostalAddressCard";
 import { TemplatesManager } from "./TemplatesManager";
 
 type Mailbox = {
@@ -304,6 +305,10 @@ export function MailboxesView() {
               ))}
             </ul>
           )}
+        </div>
+
+        <div className="border-t border-line pt-5">
+          <PostalAddressCard />
         </div>
 
         <div className="border-t border-line pt-5">

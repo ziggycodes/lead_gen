@@ -32,8 +32,8 @@ export function unsubscribeUrls(userId: number, email: string) {
   return { page: `${appOrigin()}/unsubscribe/${token}`, oneClick: `${appOrigin()}/api/unsubscribe/${token}` };
 }
 
-export function unsubscribeFooter(pageUrl: string) {
-  return `\n\n--\nDon't want these emails? Unsubscribe: ${pageUrl}`;
+export function unsubscribeFooter(pageUrl: string, postalAddress: string) {
+  return `\n\n--\n${postalAddress}\nDon't want these emails? Unsubscribe: ${pageUrl}`;
 }
 
 export function unsubscribeHeaders(oneClickUrl: string) {

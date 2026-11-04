@@ -132,6 +132,17 @@ export async function fetchConnectedMailboxes(): Promise<Mailbox[]> {
   return (mailboxes || []).filter((m) => m.status === "connected");
 }
 
+export function fetchPostalAddress() {
+  return request<{ postalAddress: string | null }>("/api/postal-address");
+}
+
+export function savePostalAddress(postalAddress: string) {
+  return request<{ postalAddress: string }>("/api/postal-address", {
+    method: "PUT",
+    body: JSON.stringify({ postalAddress }),
+  });
+}
+
 export type OfferProfile = { offer: string; audience: string; proof: string; tone: string };
 
 // Mirrors AiAccess in lib/insights.ts.

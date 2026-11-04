@@ -31,6 +31,8 @@ export const users = pgTable(
     emailDailyLimit: integer("email_daily_limit"),
     // What the account sells; grounds AI pitches. Shape: OfferProfile in lib/insights.ts.
     offerProfile: jsonb("offer_profile"),
+    // Printed at the foot of bulk emails; CAN-SPAM requires a physical address.
+    postalAddress: text("postal_address"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex("users_clerk_id_idx").on(t.clerkId)]

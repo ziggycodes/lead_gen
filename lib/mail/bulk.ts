@@ -15,7 +15,7 @@ import { renderTemplate } from "./merge";
 import { sendFromMailbox } from "./send";
 import { ownedTemplate } from "./templates";
 import { normalizeEmail } from "./text";
-import { isSuppressed, suppressedEmails } from "./unsubscribe";
+import { POSTAL_ADDRESS_REQUIRED, isSuppressed, postalAddressFor, suppressedEmails } from "./unsubscribe";
 import { inSendWindow, nextWindowStart, sendGapSeconds, warmupStatus } from "./warmup";
 
 export const MAX_BULK_RECIPIENTS = 200;
@@ -41,6 +41,7 @@ export async function createBulkSend(
   if (!account || account.status !== "connected") throw new MailboxAuthError("Choose a connected mailbox.");
   const template = await ownedTemplate(userId, input.templateId);
   if (!template) throw new MailboxAuthError("Template not found.");
+  if (!(await postalAddressFor(userId))) throw new MailboxAuthError(POSTAL_ADDRESS_REQUIRED);
   if (await hasActiveBulkSend(userId, account.id)) {
     throw new MailboxAuthError("This mailbox already has a bulk send running. Wait for it to finish or cancel it.");
   }

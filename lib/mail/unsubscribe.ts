@@ -8,6 +8,16 @@ import { normalizeEmail } from "./text";
 // won and lost record what happened with the deal.
 const KEEP_STATUSES = ["not_interested", "won", "lost"];
 
+export const POSTAL_ADDRESS_REQUIRED = "Add your mailing address on the Mailboxes page before sending bulk email.";
+
+export async function postalAddressFor(userId: number) {
+  const row = await db().query.users.findFirst({
+    where: eq(schema.users.id, userId),
+    columns: { postalAddress: true },
+  });
+  return row?.postalAddress ?? null;
+}
+
 export async function suppressedEmails(userId: number, emails: string[]) {
   const unique = Array.from(new Set(emails.map(normalizeEmail).filter(Boolean)));
   if (!unique.length) return new Set<string>();

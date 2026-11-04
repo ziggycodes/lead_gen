@@ -11,6 +11,7 @@ import {
   fetchBulkSends,
   fetchConnectedMailboxes,
   fetchLeads,
+  fetchPostalAddress,
   fetchTemplates,
   startBulkSend,
   type Mailbox,
@@ -45,6 +46,7 @@ export function BulkSendSheet({
 }) {
   const [mailboxes, setMailboxes] = useState<Mailbox[] | null>(null);
   const [templates, setTemplates] = useState<EmailTemplate[] | null>(null);
+  const [postalAddress, setPostalAddress] = useState<string | null | undefined>(undefined);
   const [accountId, setAccountId] = useState<number | "">("");
   const [templateId, setTemplateId] = useState<number | "">("");
   const [previewIndex, setPreviewIndex] = useState(0);
@@ -65,6 +67,9 @@ export function BulkSendSheet({
         setTemplates(rows);
         if (rows[0]) setTemplateId(rows[0].id);
       })
+      .catch((err) => setError((err as Error).message));
+    fetchPostalAddress()
+      .then((json) => setPostalAddress(json.postalAddress))
       .catch((err) => setError((err as Error).message));
   }, []);
 
@@ -96,7 +101,7 @@ export function BulkSendSheet({
     }
   };
 
-  const loading = mailboxes === null || templates === null;
+  const loading = mailboxes === null || templates === null || postalAddress === undefined;
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-ink/40 sm:items-center" onClick={onClose}>
@@ -130,6 +135,14 @@ export function BulkSendSheet({
               Create an email template first.{" "}
               <button onClick={onOpenMailboxes} className="font-medium text-fg underline">
                 Go to Mailboxes &amp; templates
+              </button>
+            </p>
+          ) : !postalAddress ? (
+            <p className="text-sm text-muted">
+              Add your mailing address first. US law requires a physical address in commercial email, so it appears at
+              the bottom of every bulk email.{" "}
+              <button onClick={onOpenMailboxes} className="font-medium text-fg underline">
+                Go to Mailboxes
               </button>
             </p>
           ) : (
@@ -236,9 +249,11 @@ export function BulkSendSheet({
                     <p className="font-semibold">{preview.subject}</p>
                     <p className="mt-2 whitespace-pre-wrap text-fg">{preview.body}</p>
                     <p className="mt-3 border-t border-line pt-2 text-xs text-muted">
-                      An unsubscribe link is added to the end of every email. Anyone who uses it is never emailed again
-                      from this account.
+                      {postalAddress}
+                      <br />
+                      Don&apos;t want these emails? Unsubscribe: (link added when sent)
                     </p>
+                    <p className="mt-2 text-xs text-muted">Anyone who unsubscribes is never emailed again from this account.</p>
                   </div>
                 </div>
               )}
@@ -253,7 +268,7 @@ export function BulkSendSheet({
           </button>
           <button
             onClick={submit}
-            disabled={busy || overLimit || !plan?.send.length || accountId === ""}
+            disabled={busy || overLimit || !plan?.send.length || accountId === "" || !postalAddress}
             className="inline-flex items-center gap-1.5 rounded-full bg-accent px-3 py-1.5 text-xs font-semibold text-ink disabled:opacity-50"
           >
             <Mail className="h-3.5 w-3.5" />
